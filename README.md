@@ -11,6 +11,5 @@ The analysis combines both MATLAB and R workflows:
 All code is documented to ensure reproducibility. Feel free to use this code to replicate our results or adapt it for your own research. Long live open science!
 
 ![](Auxiliary Files/ppv_spm_30.png)
-*Comparative analysis of detection capabilities between Simultaneous Confidence Corridors (SCC, red) and Statistical Parametric Mapping (SPM, blue) across different brain regions*
 
 The analysis of single-patient vs group comparison can be found in the continuation of this work: [PhD-2024-SCC-vs-SPM-SinglePatient-vs-Group](https://github.com/iguanamarina/PhD-2024-SCC-vs-SPM-SinglePatient-vs-Group)
