@@ -6,6 +6,7 @@
 ## and other measures for comparing SCC and SPM using simulated data.
 ##
 ## Date Created: 2022-01-10
+## Date Updated: 2025-04-24
 ##
 ## Author: Juan A. Arias (M.Sc.)
 ## Email: juanantonio.arias.lopez@usc.es
@@ -14,817 +15,841 @@
 ############################## ################### ############## ### 
 
 
-####  
-# PREAMBLE: ----
-#### 
+### ==================================================== ###
+###                     1) PREAMBLE                      ###
+### ==================================================== ###
 
+#* Set working directory
+setwd("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group")
 
-#* Set working directory ----
+#* Options
+options(scipen = 6, digits = 4)
 
-setwd("~/GitHub/SCCneuroimage")
+#* Define axial slice to analyze
+paramZ <- 35
 
-#* Tune Options ----
-options(scipen = 6, digits = 4) # View outputs in non-scientific notation
-memory.limit(30000000)     # This is needed on some PCs to increase memory allowance
+#* Define CRAN packages
+cran_packages <- c(
+  "ggplot2", "patchwork", "fields", "viridis",     # Plotting
+  "knitr", "kableExtra", "tibble", "magrittr",     # Tables & reports
+  "tidyr", "dplyr", "scales",                      # Data wrangling
+  "xtable", "neuroSCC"                             # Output and main package
+)
 
-#* Install Packgs ----
-
-# install.packages("remotes")
-# remotes::install_github("skgrange/threadr")
-
-#* Load up packages ---- 
-
-library(gamair);library(oro.nifti);library(memisc);library(devtools);library(remotes);library(readr);library(imager);library(itsadug);library(ggplot2);library(contoureR);library(fields);library(BPST);library(Triangulation);library(ImageSCC); library(tidyr); library(dplyr);library(stringr); library(threadr);library(memisc)
-
-#* Load up functions ----
-
-load("~/GitHub/SCCneuroimage/Functions/f.clean.RData") # Function for NiFTi -> df
-load("~/GitHub/SCCneuroimage/Functions/my_points.RData") # Function for getting relevant points from SCC
-
-#* Hyper-parameters ----
-
-param.z = 35
-
-
-####  
-# PART 1: CONTOURS OF NEURO-DATA ----------
-####
-
-
-#* Basic data for contours ----
-  
-Data = f.clean("new_mask") 
-Y <- subset(Data, Data$z == param.z) 
-Y <- Y[1:9919,4] 
-Y <- as.matrix(Y)
-Y = t(Y) 
-Y[is.nan(Y)] <- 0
-SCC <- Y; rm(Y); rm(Data)
-
-
-#* Coordinates ---- 
-
-# These are adapted to my current nifti size, in the future it would be strategic to develop
-# this code for a more generic setup
-
-x <- rep(1:91, each = 109, length.out = 9919) 
-y <- rep(1:109, length.out = 9919)
-Z <- cbind(as.matrix(x),as.matrix(y)); Z
-dat <- cbind(Z,t(SCC))
-dat <- as.data.frame(dat)
-dat[is.na(dat)] <- 0
-sum(is.na(dat$pet)) # should be = 0
-rownames(dat) <- NULL 
-rm(x); rm(y)
-
-# Get contour for the area where values change from 0 to 1 (it's a template)
-df = getContourLines(dat[1:9919,], levels = c(0)) 
-ggplot(df, aes(x, y, colour = z)) + geom_path() 
-contour = df 
-rm(df); rm(dat)
-
-f.contour <- function(x){
-  
-  aa <- contour[contour$GID == x,] # We keep GID==x (0,1,2,3...)
-  a <- aa[,5:6] # Then we keep just the coordinates 
-  print(a) # and then print in order to loop and make a list
+#* Load CRAN packages
+for (pkg in cran_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
 }
 
-coord <- list()
-
-for (i in 0:max(contour$GID)) { #change contour to any other name previously assigned if necessary
-   
-  coord[[i + 1]] <- f.contour(i)
-  rownames(coord[[ i + 1 ]]) <- NULL
+#* Load drat-hosted packages (non-CRAN)
+drat_packages <- c("Triangulation", "ImageSCC", "BPST")
+for (pkg in drat_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(
+      pkg,
+      repos = c(neuroSCC = "https://iguanamarina.github.io/neuroSCC-drat",
+                CRAN = "https://cloud.r-project.org"),
+      type = "source"
+    )
+  }
+  library(pkg, character.only = TRUE)
 }
 
-
-### Test the results are coherent:
-
-head(coord[[1]],10); plot(coord[[1]])   # external boundaries
-head(coord[[2]],10); points(coord[[2]]) # first hole
-head(coord[[3]],10); points(coord[[3]]) # second hole
-# (...) 
-
-# Most of times, if there is no 'holes' in that brain slice, some of these lines, loops and stuff
-# won't be necessary.
+#* Clean up
+rm(pkg, cran_packages, drat_packages)
 
 
-####
-# PART 2: TRIANGULATION PARAMETERS ----------
-####
+### ==================================================== ###
+###             2) CONTOURS OF NEURO-DATA               ###
+### ==================================================== ###
 
-#* Get coordinates in pckg Triangulation format: ----
+#* Define file paths
+mask_path <- "Auxiliary Files/new_mask.nii"
+triangulation_path <- file.path("z35", "contour35.RData")
 
-VT = TriMesh(coord[[1]], n = 8) 
-
-# n = Triangulation degree of fineness (8 is recommended)
-# However, higher values can be used as Arias-López et al. (2021) suggests computing times for
-# higher n values are still low and sensible.
-
-head(VT$V,10);head(VT$Tr,10) 
-
-# Create it first if it doesn't exist
-setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z)))
-save(VT, file = paste0("contour", as.character(param.z), ".RData"))
-     
-
-####
-# PART 3: CREATE SCC MATRIXES FOR CONTROLS ------
-####
-
-
-# *Load data and Create DB ----
-
-setwd("~/GitHub/SCCneuroimage/PETimg_masked for simulations")
-
-number <- paste0("C", 1:25)
-name <- paste0("masked_swww", number, "_tripleNormEsp_w00_rrec_OSEM3D_32_it1")
-# Only 25 files are controls and they follow the above defined structure
-
-database_CN <- data.frame(CN_number = integer(),z = integer(), x = integer(), y = integer(), pet = integer())
-
-for (i in 1:length(name)) {
+#* Only run if triangulation file does not exist
+if (!file.exists(triangulation_path)) {
   
-  temporal <- f.clean(name[i])
-  CN_number <- rep(number[i], length.out = nrow(Z))
-  temporal <- cbind(CN_number,temporal)
-  database_CN <- rbind(database_CN,temporal)
+  message("[INFO] Generating triangulation from mask...")
+  
+  # Extract outer brain contour at level 0
+  contours <- neuroSCC::neuroContour(mask_path, levels = 0)
+  
+  # Use external boundary only for triangulation
+  triangulation <- Triangulation::TriMesh(contours[[1]], n = 15)
+  
+  # Save result for reuse
+  if (!dir.exists("z35")) dir.create("z35", recursive = TRUE)
+  save(triangulation, file = triangulation_path)
+  
+  message("[INFO] Triangulation saved to: ", triangulation_path)
+  
+} else {
+  message("[INFO] Triangulation already exists. Skipping generation.")
 }
 
-nrow(database_CN[database_CN$pet < 0, ]) # No negative values
-rm(temporal); rm(CN_number)
+#* Clean up
+rm(mask_path, triangulation_path, contours, triangulation)
 
 
-# *Create SCC Matrix ----
+### ==================================================== ###
+###     3) CREATE SCC MATRIX FOR CONTROL GROUP          ###
+### ==================================================== ###
 
-# Working on a functional data setup requires for the data to be in a concrete format which
-# usually implies a long line of data points so that each row represents a function
+#* Define output path
+matrixCNPath <- file.path("z35", "SCC_CN.RData")
 
-SCC_CN <- matrix(nrow = length(name), ncol = nrow(Z))
-
-for (i in 1:length(number)) {
-
-  Y <- subset(database_CN, database_CN$CN_number == number[i] & database_CN$z == param.z) 
-  Y <- Y[1:9919, 5] 
-  Y <- as.matrix(Y)
-  Y = t(Y) 
-  Y[is.nan(Y)] <- 0
-  SCC_CN[i, ] <- Y
+#* Only run if the matrix hasn't already been created
+if (!file.exists(matrixCNPath)) {
   
+  message("[INFO] Creating SCC matrix for Control group...")
+  
+  # Set working directory to folder containing input .nii.gz files
+  setwd("PETimg_masked for simulations")
+  
+  # Create database for Controls (pattern: w00)
+  databaseCN <- neuroSCC::databaseCreator(
+    pattern = "_w00_",      # matches all control files
+    control = TRUE,
+    quiet = FALSE
+  )
+  
+  # Return to root
+  setwd("..")
+  
+  # Create subject-by-voxel matrix at z = paramZ
+  matrixCN <- neuroSCC::matrixCreator(
+    database = databaseCN,
+    paramZ = paramZ,
+    quiet = FALSE
+  )
+  
+  # Mean normalization
+  matrixCN <- neuroSCC::meanNormalization(matrixCN, quiet = FALSE)
+  
+  # Save for reuse
+  save(matrixCN, file = matrixCNPath)
+  message("[INFO] Control matrix saved to: ", matrixCNPath)
+  
+} else {
+  message("[INFO] Control matrix already exists. Skipping.")
 }
 
-# Sometimes R really doesn't want to remove NA so this might be necessary:
-
-  # na.zero <- function(x) {
-  #     x[is.na(x)] <- 0
-  # }
-  # SCC_CN <-  apply(SCC_CN, 2, na.zero)
+#* Clean up
+rm(matrixCNPath, databaseCN, matrixCN)
 
 
-setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z)))
-save(SCC_CN, file = "SCC_CN.RData") # SCC matrix for Controls
+### ==================================================== ###
+### 4) CREATE SCC MATRICES FOR PATHOLOGICAL GROUP       ###
+### ==================================================== ###
 
+# Full region list in correct order (smallest to largest)
+regions <- c("w32", "w79", "w214", "w271", "w413", "roiAD")
+rois <- c(1, 2, 4, 6, 8)
 
-####
-# PART 4: CREATE SCC MATRIXES FOR PATHOLOGICAL -------
-####
+# Set the folder where input NIfTI files are stored
+inputDir <- "PETimg_masked for simulations"
+outputDir <- "z35"
 
-# This section is pretty much the same as the section on Controls, but now with much more info
-
-
-# *Load data and Create DB ----
-
-setwd("~/GitHub/SCCneuroimage/PETimg_masked for simulations")
-number <- paste0("C", 1:25)
-region <- c("roiAD", "w32", "w79", "w214", "w271", "w413")
-roi <- c(1, 2, 4, 6, 8)
-
-for (i in 1:length(region)) {
-  
-  for (j in 1:length(roi)) {
+# Loop through region × ROI
+for (region in regions) {
+  for (roi in rois) {
     
-    setwd("~/GitHub/SCCneuroimage/PETimg_masked for simulations")
+    # Define expected output filename
+    matrixADPath <- file.path(outputDir, paste0("SCC_", region, "_", roi, ".RData"))
     
-    # IMPORTANTE: tuning parameters
-    
-    REGION = region[i]
-    ROI = roi[j] 
-    name <- paste0("masked_swww", number, "_tripleNormEsp_", REGION, "_0_", ROI, "_rrec_OSEM3D_32_it1")
-    
-    database_AD <- data.frame(AD_number = integer(),z = integer(), x = integer(), y = integer(), pet = integer())
-    
-    for (k in 1:length(name)) {
+    if (!file.exists(matrixADPath)) {
       
-      temporal <- f.clean(name[k])
-      AD_number <- rep(paste0(number[k], "_", as.character(REGION), "_", as.character(ROI)), length.out = nrow(Z))
-      temporal <- cbind(AD_number, temporal)
-      database_AD <- rbind(database_AD, temporal)
+      message("[INFO] Processing region ", region, ", ROI ", roi, "...")
+      
+      # Change working directory to input folder
+      setwd(inputDir)
+      
+      # Build regex pattern to match filenames
+      pattern <- paste0("^masked_swwwC.*_", region, "_0_", roi, "_.*\\.nii$")
+      
+      # Create database for this region/ROI
+      databaseAD <- neuroSCC::databaseCreator(
+        pattern = pattern,
+        control = FALSE,
+        quiet = FALSE
+      )
+      
+      # Return to root project folder
+      setwd("..")
+      
+      # Create matrix at selected slice
+      matrixAD <- neuroSCC::matrixCreator(
+        databaseAD,
+        paramZ = paramZ,
+        quiet = FALSE
+      )
+      
+      # Normalize the matrix
+      matrixAD <- neuroSCC::meanNormalization(matrixAD, quiet = FALSE)
+      
+      # Save result
+      save(matrixAD, file = matrixADPath)
+      message("[INFO] Matrix saved to: ", matrixADPath)
+      
+    } else {
+      message("[INFO] Matrix for region ", region, ", ROI ", roi, " already exists. Skipping.")
     }
-
-# *Create SCC Matrix ---- 
-       
-    SCC_matrix <- matrix(nrow = length(name), ncol = nrow(Z))
-    
-    for (k in 1:length(number)) {
-    
-      Y <- subset(database_AD, AD_number == paste0(number[k], "_", as.character(REGION), "_", as.character(ROI)) &
-                  z == param.z)
-      Y <- Y[1:9919, 5] 
-      Y <- as.matrix(Y)
-      Y = t(Y) 
-      Y[is.nan(Y)] <- 0
-      SCC_matrix[k, ] <- Y
-    }
-    
-    setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z)))
-    save(SCC_matrix, file = paste0("SCC_", REGION, "_", ROI, ".RData"))
-
   }
 }
 
-
-####
-# PART 5: COMPUTE SCCs PER SE -------
-####
+#* Clean up only path-related variables
+rm(inputDir, outputDir, matrixADPath, pattern)
 
 
-#* Preliminary stuff ----
+### ==================================================== ###
+### 5) SCC ESTIMATION                                    ###
+### ==================================================== ###
 
-setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z)))
+# Define inputs
+triangulationPath <- file.path("z35", "contour35.RData")
+matrixCNPath <- file.path("z35", "SCC_CN.RData")
+resultsDir <- file.path("z35", "results")
 
-# In order to be consistent we use common names Brain.V and Brain.Tr. 
-# From here onwards most of the names follow the ones provided by Wang et al (2019)
+# Load triangulation (VT)
+load(triangulationPath)  # loads: VT
+V.est <- as.matrix(VT[[1]])
+Tr.est <- as.matrix(VT[[2]])
+V.band <- V.est
+Tr.band <- Tr.est
 
-Brain.V <- VT[[1]]
-Brain.Tr <- VT[[2]]
+# Load control group matrix
+load(matrixCNPath)  # loads: SCC_CN
+matrixCN <- SCC_CN
 
-V.est = as.matrix(Brain.V)
-# Brain.v <- cbind(Brain.V[,2],Brain.V[,1]) # In case you need to transpose the data
-Tr.est = as.matrix(Brain.Tr)
-V.band = as.matrix(Brain.V)
-Tr.band = as.matrix(Brain.Tr) 
+# Define region/ROI grid
+regions <- c("w32", "w79", "w214", "w271", "w413", "roiAD")
+rois <- c(1, 2, 4, 6, 8)
 
+# SCC hyperparameters
+d.est <- 5
+d.band <- 2
+r <- 1
+lambda <- 10^{seq(-6, 3, 0.5)}
+alpha.grid <- c(0.10, 0.05, 0.01)
 
-#* The Loop: Fasten your seat belts ----
+# Ensure results folder exists
+if (!dir.exists(resultsDir)) dir.create(resultsDir, recursive = TRUE)
 
-for (i in 1:length(region)) {
-  
-  for (j in 1:length(roi)) {
+# Loop through all region × ROI
+for (region in regions) {
+  for (roi in rois) {
     
-    setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z)))
+    resultPath <- file.path(resultsDir, paste0("SCC_COMP_", region, "_", roi, ".RData"))
+    matrixADPath <- file.path("z35", paste0("SCC_", region, "_", roi, ".RData"))
     
-    # Response Variable:
-    
-    name_CN <- paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/SCC_CN.RData")
-    name_AD <- paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/SCC_", 
-                      region[i], "_", roi[j], ".RData")
-
-    SCC_CN <- threadr::read_rdata(name_CN)
-    SCC_AD <- threadr::read_rdata(name_AD)
-    
-    #** Mean Average Normalization:  ----
-    
-    for (k in 1:nrow(SCC_CN)) {
-  
-    temp <- SCC_CN[k, ]
-    mean <- mean(as.numeric(temp), na.rm = T)
-    SCC_CN[k, ] <- (temp/mean)
-    }
-
-    for (k in 1:nrow(SCC_AD)) {
-    
-    temp <- SCC_AD[k, ]
-    mean <- mean(as.numeric(temp), na.rm = T)
-    SCC_AD[k, ] <- (temp/mean)
-    }
-    
-    #** Other parameters for SCC computation ----
-    # Following Wang et al's recomendations:
-    
-    d.est = 5 # degree of spline for mean function  5
-    d.band = 2 # degree of spline for SCC  2
-    r = 1 # smoothing parameter  1
-    lambda = 10^{seq(-6,3,0.5)} # penalty parameters
-    alpha.grid = c(0.10,0.05,0.01) # vector of confidence levels
-
-    #** Construction of SCC's ----
-    
-    setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/results"))
-    
-    if (file.exists(paste0("SCC_COMP_", region[i], "_", roi[j] ,".RData")) == TRUE)  {
+    if (!file.exists(resultPath)) {
       
-      print("Nice!") # I already have this files so this way the lines below (very time-consuming)
-                     # run only if these files are not present at current folder
+      message("[INFO] Running SCC estimation for ", region, " (ROI ", roi, ")...")
       
-    } else  {
-    
-      SCC_COMP = scc.image(Ya = SCC_AD, Yb = SCC_CN, Z = Z, d.est = d.est, d.band = d.band, r = r,
-                           V.est.a = V.est, Tr.est.a = Tr.est,
-                           V.band.a = V.band, Tr.band.a = Tr.band,
-                           penalty = TRUE, lambda = lambda, alpha.grid = alpha.grid,
-                           adjust.sigma = TRUE)    
-      save(SCC_COMP, file = paste0("SCC_COMP_", region[i], "_", roi[j] ,".RData"))
+      load(matrixADPath)  # loads: matrixAD
       
+      dims <- neuroSCC::getDimensions("Auxiliary Files/new_mask.nii")
+      Z <- as.matrix(expand.grid(y = 1:dims$yDim, x = 1:dims$xDim)[, c(2, 1)])
+      
+      SCCcomp <- ImageSCC::scc.image(
+        Ya = matrixAD,
+        Yb = matrixCN,
+        Z = Z,
+        d.est = d.est,
+        d.band = d.band,
+        r = r,
+        V.est.a = V.est, Tr.est.a = Tr.est,
+        V.band.a = V.band, Tr.band.a = Tr.band,
+        penalty = TRUE,
+        lambda = lambda,
+        alpha.grid = alpha.grid,
+        adjust.sigma = TRUE
+      )
+      
+      save(SCCcomp, file = resultPath)
+      message("[INFO] SCC result saved to: ", resultPath)
+      
+      rm(matrixAD, SCCcomp)
+      
+    } else {
+      message("[INFO] SCC result for ", region, " ROI ", roi, " already exists. Skipping.")
     }
-    
   }
-  
 }
 
-
-####
-# PART 6: SCC EVALUATION ----
-####
+#* Clean up shared objects but keep matrixCN for next steps
+rm(V.est, Tr.est, V.band, Tr.band, d.est, d.band, r, lambda, alpha.grid, resultPath, matrixADPath, triangulationPath, resultsDir)
 
 
-# This section requires loading the TRUE points with differences in PET activity to test
-# against them. These are called ROI_something. Basically, we will get the TRUE POINTS
-# and then test them against SCC, SPM, SPMstrong... and get some metrics on each method's afficiency.
-# Enjoy.
+### ==================================================== ###
+### 6) SCC EVALUATION                                   ###
+### ==================================================== ###
 
+# Paths
+resultsDir <- "z35/results"
+roiDir <- "roisNormalizadas"
+roiTablesDir <- file.path(roiDir, "tables")
+maskPath <- "Auxiliary Files/new_mask.nii"
 
-#* Theoretical ROIs ----
+# Load coordinate grid from full image
+dims <- neuroSCC::getDimensions(maskPath)
 
-region <- c("w32", "w79", "w214", "w271", "w413", "wroiAD")
-
-# With this loop we get a series of tables with the exact ROI points as provided by
-# Santiago de Compostela's General Hospital:
-
-for (i in 1:length(region)) { 
-
-    for (k in 1:length(number)) {
-
-      setwd("~/GitHub/SCCneuroimage/roisNormalizadas/tables")
+# Loop through region × ROI
+for (region in regions) {
+  for (roi in rois) {
+    
+    message("[INFO] Evaluating SCC result for region ", region, ", ROI ", roi, "...")
+    
+    # Fix naming discrepancy: use wroiAD only for ROI file input
+    roiMaskRegion <- ifelse(region == "roiAD", "wroiAD", region)
+    
+    # Define SCC result path
+    resultPath <- file.path(resultsDir, paste0("SCC_COMP_", region, "_", roi, ".RData"))
+    outputDir <- file.path(resultsDir, paste0("ROI", roi))
+    outputCSV <- file.path(outputDir, paste0("sens_esp_SCC_", region, "_", roi, ".csv"))
+    
+    # Ensure output folder exists
+    if (!dir.exists(outputDir)) dir.create(outputDir, recursive = TRUE)
+    
+    # Load SCC result once
+    load(resultPath)  # loads SCCcomp
+    detectedPoints <- neuroSCC::getPoints(SCCcomp)$positivePoints
+    
+    # Temporary storage
+    metricsList <- list()
+    
+    # Loop through subjects (C1 to C25)
+    for (subject in 1:25) {
       
-      if (file.exists(paste0("ROItable_", region[i], "_", number[k], ".RDS")) == TRUE)  {
-         print("Nice!")
-        } else  {
-          
-      setwd("~/GitHub/SCCneuroimage/roisNormalizadas")
-      roi_table <- data.frame(group = integer(),
-                              z = integer(),
-                              x = integer(),
-                              y = integer())
+      subjectID <- paste0("C", subject)
       
-      # Name of file:
-      name <- paste0("wwwx", region[i], "_redim_crop_squ_flipLR_newDim_", number[k])
-      # Clean data for that file:
-      temporal <- f.clean(name)
-      # Add meta-data:
-      group <- rep(paste0(as.character(region[i]), "_number", number[k]), length.out = nrow(Z))
-      # Merge with main data.frame:
-      temporal <- cbind(group, temporal)
-      # Solve problem with zeros and NA's:
-      suelto <- temporal[, "pet"]
-      suelto[is.nan(suelto)] <- 0
-      temporal[, "pet"] <- as.data.frame(suelto)
-      # Final:
-      roi_table <- rbind(roi_table, temporal)
-
-      setwd("~/GitHub/SCCneuroimage/roisNormalizadas/tables")
-      saveRDS(roi_table, file = paste0("ROItable_", region[i], "_", number[k], ".RDS"))
-        
+      # Construct path to subject-specific ROI file
+      roiFile <- file.path(
+        roiDir,
+        paste0("wwwx", roiMaskRegion, "_redim_crop_squ_flipLR_newDim_", subjectID, ".nii")
+      )
+      
+      # Check ROI file exists
+      if (!file.exists(roiFile)) {
+        warning("[WARNING] ROI file not found: ", roiFile)
+        next
       }
       
+      # Process the ROI
+      truePoints <- neuroSCC::processROIs(
+        roiFile = roiFile,
+        region = roiMaskRegion,
+        number = subjectID,
+        save = FALSE,
+        verbose = FALSE
+      )
+      
+      # Skip if no voxels at this slice
+      sliceTruePoints <- subset(truePoints, z == paramZ & pet == 1)
+      if (nrow(sliceTruePoints) == 0) {
+        message("[WARNING] No ROI voxels at z = ", paramZ, " for ", subjectID, " — skipping.")
+        next
+      }
+      
+      # Calculate metrics
+      subjectMetrics <- neuroSCC::calculateMetrics(
+        detectedPoints = detectedPoints,
+        truePoints = truePoints,
+        totalCoords = dims,
+        regionName = paste0(region, "_", roi)
+      )
+      
+      subjectMetrics$subject <- subjectID
+      metricsList[[length(metricsList) + 1]] <- subjectMetrics
     }
-  
+    
+    # Combine all rows into one data frame
+    if (length(metricsList) > 0) {
+      allMetrics <- do.call(rbind, metricsList)
+      readr::write_csv(allMetrics, outputCSV)
+      message("[INFO] Metrics written to: ", outputCSV)
+    } else {
+      warning("[WARNING] No metrics computed for ", region, " ROI ", roi)
+    }
+    
+    # Clean memory
+    rm(SCCcomp, detectedPoints, metricsList, allMetrics)
   }
-
-
-#* Theoretical Points (True according to ROIs) ----
-  
-ROI_data <- list() # First load data
-
-  for (i in 1:length(region)) {
-    for (k in 1:length(number)) {
-      
-    setwd("~/GitHub/SCCneuroimage/roisNormalizadas/tables")
-    ROI_data[[paste0(as.character(region[i]), "_", as.character(number[k]))]] <- readRDS(
-      paste0("~/GitHub/SCCneuroimage/roisNormalizadas/tables/ROItable_", 
-             region[i], "_", number[k], ".RDS"))
-  
-    }
-  }  
-
-
-T_points <- list() # Now filter by Z 
-
-for (i in 1:length(region)) {
-  
-  for (j in 1:length(number)) {
-    
-    T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]] <- ROI_data[[paste0(as.character(region[i]), "_", as.character(number[j]))]][ROI_data[[paste0(as.character(region[i]), "_", as.character(number[j]))]]$z == param.z & ROI_data[[paste0(as.character(region[i]), "_", as.character(number[j]))]]$pet == 1, 3:4]
-    
-    T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]] <- unite(as.data.frame(T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]]), newcol, c(y,x), remove = T)
-        
-    }
-  }
-    
-rm(ROI_data) # No longer necessary
-
-
-#* Hypothetical points according to SCCs ---- 
-
-
-  # Hypothetical points and sens/esp for different methods go all together
-  # in a big loop. First, you need to perform the analysis with SPM and all the 
-  # different setups and export SPM results to a binary file named "binary.nii"
-  # Pay attention to the folders so that you understand where things come from.
-
-
-SCC_vs_SPM_complete <-   data.frame(method = integer(),
-                                    region = integer(),
-                                    roi = integer(),
-                                    number = integer(),
-                                    sens = integer(),
-                                    esp = integer(),
-                                    PPV = integer(),
-                                    NPV = integer())
-
-SCC_vs_SPM <- data.frame(method = integer(),
-                         region = integer(),
-                         roi = integer(),
-                         sensMEAN = integer(),
-                         sensSD = integer(),
-                         espMEAN = integer(),
-                         espSD = integer(),
-                         ppvMEAN = integer(),
-                         ppvSD = integer(),
-                         npvMEAN = integer(),
-                         npvSD = integer())
-
-# These above are the final tables
-
-x <- rep(1:91, each = 109, length.out = 9919) 
-y <- rep(1:109, length.out = 9919)
-total.coords <- data.frame(y, x) ###!!!!!
-total.coords <- unite(as.data.frame(total.coords), newcol, c(y, x), remove = T)
-rm(x); rm(y)
-
-
-# NOW FOR REAL, FASTEN YOUR SEAT BELT, THIS IS GOING TO BE AS HARD AND FAST AS A TECHNNO RAVE 
-
-for (k in 1:length(roi)) {
-  
-  region <- c("w32", "w79", "w214", "w271", "w413", "roiAD")
-  
-  H_points <- list()
-  
-  setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/results"))
-  
-  for (i in 1:length(region)) {
-  
-    load(paste0("SCC_COMP_", region[i], "_", roi[k], ".RData"))
-    H_points[[as.character(region[i])]] <- my_points(SCC_COMP, 2)[[1]] # 2 = alpha 0'95
-    H_points[[as.character(region[i])]] <- unite(as.data.frame(H_points[[i]]), newcol, c(row, col), remove = T)
-    
-  }
-     
-  rm(list = ls(pattern = "^SCC_COMP")) # Just beautiful
-  
-  #* SENS/ESP for SCC ----
-
-  region <- c("w32", "w79", "w214", "w271", "w413", "wroiAD")
-  names(H_points)[6] <- "wroiAD" # because of reasons
-  
-  for (i in 1:length(region)) {  
-    
-    SCC_sens_esp <- data.frame(region = integer(), group = integer(), sens = integer(), esp = integer(), ppv = integer(), npv = integer())
-    
-    for (j in 1:length(number)) {
-    
-      inters <- inner_join(H_points[[as.character(region[i])]],
-                           T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])
-      
-      sensibilitySCC <- nrow(inters)/nrow(T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])*100 
-      # p(correctly identify hypoactive pixel)
-      
-      true_neg <- anti_join(total.coords,
-                            T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])
-      hypo_neg <- anti_join(total.coords,
-                            H_points[[as.character(region[i])]])
-      
-      anti_inters <- inner_join(true_neg, hypo_neg)
-      
-      specificitySCC <- nrow(anti_inters)/nrow(true_neg)*100
-      # p(correctly identify healthy pixel)
-    
-      # PPV	= TP/(TP+FP) -> probability of having the disease after a positive test result
-      
-      FalsePositive <- inner_join(H_points[[as.character(region[i])]], 
-                                  true_neg)
-      FalseNegative <- inner_join(hypo_neg, 
-                                  T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])  
-      
-      PPV = (nrow(inters)/(nrow(inters) + nrow(FalsePositive)))*100
-      
-      # NPV	= TN/(FN+TN) -> probability of not having the disease after a negative test result
-      
-      NPV = (nrow(anti_inters)/(nrow(anti_inters) + nrow(FalseNegative)))*100
-      
-      temp <- data.frame(region = region[i], group = number[j], sens = sensibilitySCC, esp = specificitySCC, ppv = PPV, npv = NPV)  
-      SCC_sens_esp <- rbind(SCC_sens_esp, temp)
-      
-    }
-    
-    means <- data.frame(region = region[i], group = "MEAN", sens = mean(SCC_sens_esp$sens, na.rm = TRUE), 
-                                                            esp = mean(SCC_sens_esp$esp, na.rm = TRUE),
-                                                            ppv = mean(SCC_sens_esp$ppv, na.rm = TRUE),
-                                                            npv = mean(SCC_sens_esp$npv, na.rm = TRUE))
-    sds <- data.frame(region = region[i], group = "SD", sens = sd(SCC_sens_esp$sens, na.rm = TRUE), 
-                                                        esp = sd(SCC_sens_esp$esp, na.rm = TRUE),
-                                                        ppv = sd(SCC_sens_esp$ppv, na.rm = TRUE),
-                                                        npv = sd(SCC_sens_esp$npv, na.rm = TRUE))
-    SCC_sens_esp <- rbind(SCC_sens_esp, means, sds)
-    
-    setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/results", "/ROI", roi[k]))
-    write_csv(SCC_sens_esp, paste0("sens_esp_SCC_", region[i], "_", roi[k], ".csv"), na = "NA", append = FALSE)
-    
-  }
-  
-  setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/results", "/ROI", roi[k]))
-  
-  sens_esp_SCC_w32 <- read_csv(paste0("sens_esp_SCC_w32_", roi[k], ".csv"), na = "NA")
-  sens_esp_SCC_w79 <- read_csv(paste0("sens_esp_SCC_w79_", roi[k], ".csv"), na = "NA")
-  sens_esp_SCC_w214 <- read_csv(paste0("sens_esp_SCC_w214_", roi[k], ".csv"), na = "NA")
-  sens_esp_SCC_w271 <- read_csv(paste0("sens_esp_SCC_w271_", roi[k], ".csv"), na = "NA")
-  sens_esp_SCC_w413 <- read_csv(paste0("sens_esp_SCC_w413_", roi[k], ".csv"), na = "NA")
-  sens_esp_SCC_wroiAD <- read_csv(paste0("sens_esp_SCC_wroiAD_", roi[k], ".csv"), na = "NA")
- 
-  #* SENS/ESP for SPM ----
-  
-  # This part requires you to have previously performed these analysis in SPM
-  # using an uncorrected p-value of 0'05 and no pixel threshold and exporting
-  # a binary file ("binary.nii") into folders following the below defined name format
-  
-  for (i in 1:length(region)) {  
-    
-    setwd(paste0("~/GitHub/SCCneuroimage/z", as.numeric(param.z), "/SPM", "/ROI", i, "_", region[i], "_0", roi[k]))
-    binary <- f.clean("binary.nii")
-    H_points_SPM <- binary[binary$z == as.numeric(param.z) & binary$pet == 1, 2:3]
-    H_points_SPM <- unite(as.data.frame(H_points_SPM), newcol, c(y, x), remove = T)
-    
-    SPM_sens_esp <- data.frame(region = integer(), group = integer(), sens = integer(), esp = integer(), ppv = integer(), npv = integer())
-    
-    for (j in 1:length(number)) {
-    
-      inters <- inner_join(H_points_SPM,
-                           T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])
-    
-      sensibilitySPM <- nrow(inters)/nrow(T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])*100 
-      # p(correctly identify hypoactive pixel)
-      
-      true_neg <- anti_join(total.coords,
-                            T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])
-      hypo_neg <- anti_join(total.coords,
-                            H_points_SPM)
-      
-      anti_inters <- inner_join(true_neg, hypo_neg)
-      
-      specificitySPM <- nrow(anti_inters)/nrow(true_neg)*100
-      # p(correctly identify healthy pixel)
-      
-      # PPV	= TP/(TP+FP) -> probability of having the disease after a positive test result
-      
-      FalsePositive <- inner_join(H_points_SPM, 
-                                  true_neg)
-      FalseNegative <- inner_join(hypo_neg, 
-                                  T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])  
-      
-      PPV = (nrow(inters)/(nrow(inters) + nrow(FalsePositive)))*100
-      
-      # NPV	= TN/(FN+TN) -> probability of not having the disease after a negative test result
-      
-      NPV = (nrow(anti_inters)/(nrow(anti_inters) + nrow(FalseNegative)))*100
-      
-      temp <- data.frame(region = region[i], group = number[j], sens = sensibilitySPM, esp = specificitySPM, ppv = PPV, npv = NPV)  
-      SPM_sens_esp <- rbind(SPM_sens_esp, temp)
-  
-    }
-    
-    means <- data.frame(region = region[i], group = "MEAN", sens = mean(SPM_sens_esp$sens, na.rm = TRUE), 
-                                                            esp = mean(SPM_sens_esp$esp, na.rm = TRUE),
-                                                            ppv = mean(SPM_sens_esp$ppv, na.rm = TRUE),
-                                                            npv = mean(SPM_sens_esp$npv, na.rm = TRUE))
-    sds <- data.frame(region = region[i], group = "SD", sens = sd(SPM_sens_esp$sens, na.rm = TRUE), 
-                                                        esp = sd(SPM_sens_esp$esp, na.rm = TRUE),
-                                                        ppv = sd(SPM_sens_esp$ppv, na.rm = TRUE),
-                                                        npv = sd(SPM_sens_esp$npv, na.rm = TRUE))
-    SPM_sens_esp <- rbind(SPM_sens_esp, means, sds)
-  
-    setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/results", "/ROI", roi[k]))
-    
-    write_csv(SPM_sens_esp, paste0("sens_esp_SPM_", region[i], "_", roi[k], ".csv"), na = "NA", append = FALSE)
-  
-  }
-  
-  setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/results", "/ROI", roi[k]))
-  
-  sens_esp_SPM_w32 <- read_csv(paste0("sens_esp_SPM_w32_", roi[k], ".csv"), na = "NA")
-  sens_esp_SPM_w79 <- read_csv(paste0("sens_esp_SPM_w79_", roi[k], ".csv"), na = "NA")
-  sens_esp_SPM_w214 <- read_csv(paste0("sens_esp_SPM_w214_", roi[k], ".csv"), na = "NA")
-  sens_esp_SPM_w271 <- read_csv(paste0("sens_esp_SPM_w271_", roi[k], ".csv"), na = "NA")
-  sens_esp_SPM_w413 <- read_csv(paste0("sens_esp_SPM_w413_", roi[k], ".csv"), na = "NA")
-  sens_esp_SPM_wroiAD <- read_csv(paste0("sens_esp_SPM_wroiAD_", roi[k], ".csv"), na = "NA")
-  
-  
-
-     
-  #* SENS/ESP for strong SPM (FWE 0'05 + 100 voxels threshold) ----
-  
-  # Same as the previous section, here you need to carry out SPM analysis 
-  # by yourself and then save the resulting binary file as "binary.nii" in 
-  # folders following below-shown path structure. In this case, SPM analysis
-  # is performed with FWE 0'05 and 100 voxels of threshold.
-  
-  
-  for (i in 1:length(region)) {  
-    
-    setwd(paste0("~/GitHub/SCCneuroimage/z", as.numeric(param.z), "/SPMstrong", "/ROI", i, "_", region[i], "_0", roi[k]))
-    binary <- f.clean("binary.nii")
-    H_points_SPMstrong <- binary[binary$z == as.numeric(param.z) & binary$pet == 1, 2:3]
-    H_points_SPMstrong <- unite(as.data.frame(H_points_SPMstrong), newcol, c(y, x), remove = T)
-    
-    SPMstrong_sens_esp <- data.frame(region = integer(), group = integer(), sens = integer(), esp = integer(), ppv = integer(), npv = integer())
-    
-    for (j in 1:length(number)) {
-    
-      inters <- inner_join(H_points_SPMstrong,
-                           T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])
-    
-      sensibilitySPMstrong <- nrow(inters)/nrow(T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])*100 
-      
-      true_neg <- anti_join(total.coords,
-                            T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])
-      hypo_neg <- anti_join(total.coords,
-                            H_points_SPMstrong)
-      
-      anti_inters <- inner_join(true_neg, hypo_neg)
-      
-      specificitySPMstrong <- nrow(anti_inters)/nrow(true_neg)*100
-      # p(correctly identify healthy pixel)
-      
-      # PPV	= TP/(TP+FP) -> probability of having the disease after a positive test result
-      
-      FalsePositive <- inner_join(H_points_SPMstrong, 
-                                  true_neg)
-      FalseNegative <- inner_join(hypo_neg, 
-                                  T_points[[paste0(as.character(region[i]), "_", as.character(number[j]))]])  
-      
-      PPV = (nrow(inters)/(nrow(inters) + nrow(FalsePositive)))*100
-      
-      # NPV	= TN/(FN+TN) -> probability of not having the disease after a negative test result
-      
-      NPV = (nrow(anti_inters)/(nrow(anti_inters) + nrow(FalseNegative)))*100
-      
-      
-      temp <- data.frame(region = region[i], group = number[j], sens = sensibilitySPMstrong, esp = specificitySPMstrong, ppv = PPV, npv = NPV)  
-      SPMstrong_sens_esp <- rbind(SPMstrong_sens_esp, temp)
-  
-    }
-    
-    means <- data.frame(region = region[i], group = "MEAN", sens = mean(SPMstrong_sens_esp$sens, na.rm = TRUE), 
-                                                            esp = mean(SPMstrong_sens_esp$esp, na.rm = TRUE),
-                                                            ppv = mean(SPMstrong_sens_esp$ppv, na.rm = TRUE),
-                                                            npv = mean(SPMstrong_sens_esp$npv, na.rm = TRUE))
-    sds <- data.frame(region = region[i], group = "SD", sens = sd(SPMstrong_sens_esp$sens, na.rm = TRUE), 
-                                                        esp = sd(SPMstrong_sens_esp$esp, na.rm = TRUE),
-                                                        ppv = sd(SPMstrong_sens_esp$ppv, na.rm = TRUE),
-                                                        npv = sd(SPMstrong_sens_esp$npv, na.rm = TRUE))
-    SPMstrong_sens_esp <- rbind(SPMstrong_sens_esp, means, sds)
-  
-    setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/results", "/ROI", roi[k]))
-    
-    write_csv(SPMstrong_sens_esp, paste0("sens_esp_SPMstrong_", region[i], "_", roi[k], ".csv"), na = "NA", append = FALSE)
-  
-  }
-  
-  setwd(paste0("~/GitHub/SCCneuroimage/z", as.character(param.z), "/results", "/ROI", roi[k]))
-  
-  sens_esp_strongSPM_w32 <- read_csv(paste0("sens_esp_SPMstrong_w32_", roi[k], ".csv"), na = "NA")
-  sens_esp_strongSPM_w79 <- read_csv(paste0("sens_esp_SPMstrong_w79_", roi[k], ".csv"), na = "NA")
-  sens_esp_strongSPM_w214 <- read_csv(paste0("sens_esp_SPMstrong_w214_", roi[k], ".csv"), na = "NA")
-  sens_esp_strongSPM_w271 <- read_csv(paste0("sens_esp_SPMstrong_w271_", roi[k], ".csv"), na = "NA")
-  sens_esp_strongSPM_w413 <- read_csv(paste0("sens_esp_SPMstrong_w413_", roi[k], ".csv"), na = "NA")
-  sens_esp_strongSPM_wroiAD <- read_csv(paste0("sens_esp_SPMstrong_wroiAD_", roi[k], ".csv"), na = "NA")
-  
-  
-  #* Create a Complete List: ----
-  
-  listSCC <- ls(pattern = "^sens_esp_SCC")
-  
-  for (i in 1:length(listSCC)) {
-    
-    data <- get(listSCC[[i]])[1:25, ]
-    method <- rep("SCC", times = 25)
-    Roi <- rep(as.character(roi[k]), times = 25) 
-    tempSCC <- cbind(as.data.frame(method), data[, 1], as.data.frame(Roi), data[, 2:6])  
-    
-    SCC_vs_SPM_complete <- rbind(SCC_vs_SPM_complete, tempSCC)
-  
-    }
-  
-  
-  listSPM <- ls(pattern = "^sens_esp_SPM")
-  
-  for (i in 1:length(listSPM)) {
-    
-    data <- get(listSPM[[i]])[1:25, ]
-    method <- rep("SPM", times = 25)
-    Roi <- rep(as.character(roi[k]), times = 25)  
-    tempSPM <- cbind(as.data.frame(method), data[, 1], as.data.frame(Roi), data[, 2:6])  
-    
-    SCC_vs_SPM_complete <- rbind(SCC_vs_SPM_complete, tempSPM)
-  
-  }
-  
-  
-  listSPMstrong <- ls(pattern = "^sens_esp_strongSPM")
-  
-  for (i in 1:length(listSPMstrong)) {
-    
-    data <- get(listSPMstrong[[i]])[1:25, ]
-    method <- rep("SPMstrong", times = 25)
-    Roi <- rep(as.character(roi[k]), times = 25)  
-    tempSPMstrong <- cbind(as.data.frame(method), data[, 1], as.data.frame(Roi), data[, 2:6])  
-    
-    SCC_vs_SPM_complete <- rbind(SCC_vs_SPM_complete, tempSPMstrong)
-  
-  }
-  
-  
-  #* Create a Final Reduced List: ----
-  
-  
-  for (i in 1:length(listSCC)) {
-    
-    data <- get(listSCC[[i]])[26:27, ]
-    temp <- data.frame(method = "SCC",
-                       region = as.character(data$region[1]), 
-                       roi = roi[k], 
-                       sensMEAN = data$sens[1], 
-                       sensSD = data$sens[2], 
-                       espMEAN = data$esp[1], 
-                       espSD = data$esp[2],
-                       ppvMEAN = data$ppv[1],
-                       ppvSD = data$ppv[2],
-                       npvMEAN = data$npv[1],
-                       npvSD = data$npv[2])    
-    
-    SCC_vs_SPM <- rbind(SCC_vs_SPM, temp)
-  
-    }
-  
-  
-  for (i in 1:length(listSPM)) {
-    
-    data <- get(listSPM[[i]])[26:27, ]
-    temp <- data.frame(method = "SPM",
-                       region = as.character(data$region[1]), 
-                       roi = roi[k], 
-                       sensMEAN = data$sens[1], 
-                       sensSD = data$sens[2], 
-                       espMEAN = data$esp[1], 
-                       espSD = data$esp[2],
-                       ppvMEAN = data$ppv[1],
-                       ppvSD = data$ppv[2],
-                       npvMEAN = data$npv[1],
-                       npvSD = data$npv[2]) 
-    
-    SCC_vs_SPM <- rbind(SCC_vs_SPM, temp)
-  
-    }
-  
-  
-  for (i in 1:length(listSPMstrong)) {
-    
-    data <- get(listSPMstrong[[i]])[26:27, ]
-    temp <- data.frame(method = "SPMstrong",
-                       region = as.character(data$region[1]), 
-                       roi = roi[k], 
-                       sensMEAN = data$sens[1], 
-                       sensSD = data$sens[2], 
-                       espMEAN = data$esp[1], 
-                       espSD = data$esp[2],
-                       ppvMEAN = data$ppv[1],
-                       ppvSD = data$ppv[2],
-                       npvMEAN = data$npv[1],
-                       npvSD = data$npv[2])    
-    
-    SCC_vs_SPM <- rbind(SCC_vs_SPM, temp)
-  
-    }
-
 }
 
-View(SCC_vs_SPM)
-View(SCC_vs_SPM_complete)
+# Clean path-level objects
+rm(resultsDir, roiDir, roiTablesDir, maskPath, outputDir, outputCSV, roiFile, resultPath)
 
-setwd(paste0("~/GitHub/SCCneuroimage/z", as.numeric(param.z), "/results"))
-saveRDS(SCC_vs_SPM, file = paste0("SCC_vs_SPM", ".RDS"))
-saveRDS(SCC_vs_SPM_complete, file = paste0("SCC_vs_SPM_complete", ".RDS"))
 
-# NOW WE ALREADY HAVE THE TWO FILES WE NEED WITH SENSIBILITY, SPECIFICITY, 
-# POSITIVE PREDICTIVE VALUE, AND NEGATIVE PREDICTIVE VALUE. LET'S MOVE TO ANOTHER
-# SCRIPT FOR VISUALIZATION
+### ==================================================== ###
+### 6B) SPM EVALUATION                                  ###
+### ==================================================== ###
+
+# Paths
+spmDir <- "z35/SPM"
+roiDir <- "roisNormalizadas"
+roiTablesDir <- file.path(roiDir, "tables")
+resultsDir <- "z35/results"
+maskPath <- "Auxiliary Files/new_mask.nii"
+
+# Load coordinate grid
+dims <- neuroSCC::getDimensions(maskPath)
+
+# Loop through region × ROI
+for (region in regions) {
+  for (roi in rois) {
+    
+    message("[INFO] Evaluating SPM result for region ", region, ", ROI ", roi, "...")
+    
+    # Fix naming inconsistencies
+    roiMaskRegion <- ifelse(region == "roiAD", "wroiAD", region)     # for ROI mask
+    roiFolderRegion <- ifelse(region == "roiAD", "wroiAD", region)   # for SPM folder
+    
+    # Determine region index for correct folder lookup
+    regionIndex <- which(regions == region)
+    spmSubdir <- file.path(spmDir, paste0("ROI", regionIndex, "_", roiFolderRegion, "_0", roi))
+    niftiFile <- file.path(spmSubdir, "binary.nii")
+    
+    # Result paths
+    outputDir <- file.path(resultsDir, paste0("ROI", roi))
+    outputCSV <- file.path(outputDir, paste0("sens_esp_SPM_", region, "_", roi, ".csv"))
+    
+    # Ensure output folder exists
+    if (!dir.exists(outputDir)) dir.create(outputDir, recursive = TRUE)
+    
+    # Check for binary.nii
+    if (!file.exists(niftiFile)) {
+      warning("[WARNING] binary.nii not found at: ", niftiFile)
+      next
+    }
+    
+    # Load SPM-detected points (same for all subjects)
+    detectedPoints <- neuroSCC::getSPMbinary(niftiFile, paramZ = paramZ)
+    
+    # Temporary storage for all subject evaluations
+    metricsList <- list()
+    
+    for (subject in 1:25) {
+      subjectID <- paste0("C", subject)
+      
+      # Construct subject-specific ROI file
+      roiFile <- file.path(
+        roiDir,
+        paste0("wwwx", roiMaskRegion, "_redim_crop_squ_flipLR_newDim_", subjectID, ".nii")
+      )
+      
+      # Check existence
+      if (!file.exists(roiFile)) {
+        warning("[WARNING] ROI file not found for subject ", subjectID, ": ", roiFile)
+        next
+      }
+      
+      # Process subject-specific ROI
+      truePoints <- neuroSCC::processROIs(
+        roiFile = roiFile,
+        region = roiMaskRegion,
+        number = subjectID,
+        save = FALSE,
+        verbose = FALSE
+      )
+      
+      # Filter for z = paramZ and pet = 1
+      sliceTruePoints <- subset(truePoints, z == paramZ & pet == 1)
+      if (nrow(sliceTruePoints) == 0) {
+        message("[WARNING] No ROI voxels at z = ", paramZ, " for ", subjectID, " — skipping.")
+        next
+      }
+      
+      # Evaluate
+      subjectMetrics <- neuroSCC::calculateMetrics(
+        detectedPoints = detectedPoints,
+        truePoints = truePoints,
+        totalCoords = dims,
+        regionName = paste0(region, "_", roi)
+      )
+      
+      subjectMetrics$subject <- subjectID
+      metricsList[[length(metricsList) + 1]] <- subjectMetrics
+    }
+    
+    # Write all evaluations to CSV
+    if (length(metricsList) > 0) {
+      allMetrics <- do.call(rbind, metricsList)
+      readr::write_csv(allMetrics, outputCSV)
+      message("[INFO] Metrics written to: ", outputCSV)
+    } else {
+      warning("[WARNING] No SPM metrics computed for ", region, " ROI ", roi)
+    }
+    
+    # Clean
+    rm(detectedPoints, metricsList, allMetrics)
+  }
+}
+
+# Clean global temp vars
+rm(spmDir, roiDir, roiTablesDir, resultsDir, maskPath, outputDir, outputCSV, roiFile, niftiFile, regionIndex)
+
+
+### ==================================================== ###
+### 7) SUMMARY TABLES                                   ###
+### ==================================================== ###
+
+library(dplyr)
+library(readr)
+
+# Storage for full dataset
+SCC_vs_SPM_complete <- data.frame()
+
+# Loop through region × ROI
+for (region in regions) {
+  for (roi in rois) {
+    
+    # Build folder path
+    resultFolder <- file.path("z35", "results", paste0("ROI", roi))
+    
+    # Define file paths
+    fileSCC <- file.path(resultFolder, paste0("sens_esp_SCC_", region, "_", roi, ".csv"))
+    fileSPM <- file.path(resultFolder, paste0("sens_esp_SPM_", region, "_", roi, ".csv"))
+    
+    # If SCC exists, read and tag
+    if (file.exists(fileSCC)) {
+      tempSCC <- read_csv(fileSCC, show_col_types = FALSE)
+      tempSCC <- tempSCC |>
+        tidyr::separate(col = region, into = c("region", "roi"), sep = "_") |>
+        dplyr::mutate(
+          method = "SCC",
+          roi = as.numeric(roi)
+        ) |>
+        dplyr::select(method, region, roi, dplyr::everything())
+      SCC_vs_SPM_complete <- bind_rows(SCC_vs_SPM_complete, tempSCC)
+    }
+    
+    # If SPM exists, read and tag
+    if (file.exists(fileSPM)) {
+      tempSPM <- read_csv(fileSPM, show_col_types = FALSE)
+      tempSPM <- tempSPM |>
+        tidyr::separate(col = region, into = c("region", "roi"), sep = "_") |>
+        dplyr::mutate(
+          method = "SPM",
+          roi = as.numeric(roi)
+        ) |>
+        dplyr::select(method, region, roi, dplyr::everything())
+      
+      SCC_vs_SPM_complete <- dplyr::bind_rows(SCC_vs_SPM_complete, tempSPM)
+    }
+  }
+}
+
+# Save full version
+saveRDS(SCC_vs_SPM_complete, file = "z35/results/SCC_vs_SPM_complete.RDS")
+write_csv(SCC_vs_SPM_complete, "z35/results/SCC_vs_SPM_complete.csv")
+
+# Create grouped summary (mean ± SD)
+SCC_vs_SPM <- SCC_vs_SPM_complete |>
+  group_by(method, region, roi) |>
+  summarise(
+    sensMEAN = mean(sensitivity, na.rm = TRUE),
+    sensSD   = sd(sensitivity, na.rm = TRUE),
+    espMEAN  = mean(specificity, na.rm = TRUE),
+    espSD    = sd(specificity, na.rm = TRUE),
+    ppvMEAN  = mean(PPV, na.rm = TRUE),
+    ppvSD    = sd(PPV, na.rm = TRUE),
+    npvMEAN  = mean(NPV, na.rm = TRUE),
+    npvSD    = sd(NPV, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(method, region, roi)
+
+# Save summary version
+saveRDS(SCC_vs_SPM, file = "z35/results/SCC_vs_SPM.RDS")
+write_csv(SCC_vs_SPM, "z35/results/SCC_vs_SPM.csv")
+
+# Clean up
+rm(tempSCC, tempSPM, fileSCC, fileSPM, resultFolder)
+
+
+### ==================================================== ###
+### 8) VISUALIZATIONS                                   ###
+### ==================================================== ###
+
+# Load data (summary and full evaluation)
+referencia <- readRDS(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", 
+                             as.numeric(paramZ), "/results/SCC_vs_SPM.RDS"))
+table <- readRDS(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", 
+                        as.numeric(paramZ), "/results/SCC_vs_SPM_complete.RDS"))
+
+# Load necessary packages
+library(tidyverse)
+library(lemon)
+library(gridExtra)
+
+# Prepare factor ordering
+table$region <- factor(table$region,
+                       levels = c("w32", "w79", "w214", "w271", "w413", "roiAD"))
+table$roi <- factor(table$roi, levels = c(1, 2, 4, 6, 8), labels = c("10", "20", "40", "60", "80"))
+
+# Set save directory
+setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
+
+
+### ----------------------------------------------------------------
+### Sensitivity & Specificity for wroiAD — Primary Figure
+### ----------------------------------------------------------------
+
+graph1 <- ggplot(data = table %>% filter(region == "roiAD"), 
+                 aes(x = roi, y = sensitivity)) +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  geom_boxplot(aes(fill = method)) +
+  xlab("Level of Induced Hypoactivity (%)") +
+  ylab("Sensitivity (%)") +
+  scale_fill_brewer(palette = "Set1")
+
+graph2 <- ggplot(data = table %>% filter(region == "roiAD"), 
+                 aes(x = roi, y = specificity)) +
+  geom_boxplot(aes(fill = method, col = method)) +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  xlab("Level of Induced Hypoactivity (%)") +
+  ylab("Specificity (%)") +
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  guides(col = FALSE)
+
+combined_graph <- grid.arrange(graph1, graph2, ncol = 2)
+ggsave(filename = paste0("sens_esp_wroiAD_", as.numeric(paramZ), ".png"), 
+       plot = combined_graph, width = 24, height = 18, units = "cm", dpi = 600)
+
+### ----------------------------------------------------------------
+### Sensitivity, Specificity, PPV, NPV across all regions & ROIs
+### ----------------------------------------------------------------
+
+plot_metric_by_region <- function(metric_name, y_label) {
+  ggplot(data = table, aes(x = roi, y = .data[[metric_name]])) +
+    geom_boxplot(aes(fill = method), outlier.size = 0.5, lwd = 0.25) +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 10), limits = c(0, 100)) +
+    xlab("Hypoactivity (%)") +
+    ylab(y_label) +
+    facet_wrap(~region, ncol = 3) +
+    scale_fill_brewer(palette = "Set1") +
+    theme_minimal(base_family = "serif") +
+    theme(panel.border = element_blank(),
+          axis.line = element_line(),
+          legend.text = element_text(size = 14))
+}
+
+graph_sens <- plot_metric_by_region("sensitivity", "Sensitivity (%)")
+graph_esp  <- plot_metric_by_region("specificity", "Specificity (%)")
+graph_ppv  <- plot_metric_by_region("PPV", "Positive Predictive Value (%)")
+graph_npv  <- plot_metric_by_region("NPV", "Negative Predictive Value (%)")
+
+ggsave("sens_ALL.png", plot = graph_sens, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("esp_ALL.png", plot = graph_esp, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("ppv_ALL.png", plot = graph_ppv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("npv_ALL.png", plot = graph_npv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+
+# Combined multi-metric view (optional)
+combined <- grid.arrange(graph_sens, graph_esp, graph_ppv, graph_npv, ncol = 2)
+ggsave("summary_metrics_ALL.png", plot = combined, width = 38, height = 28, units = "cm", dpi = 600)
+
+### ==================================================== ###
+### OPTIONAL VISUALIZATION EXPERIMENTS                  ###
+### ==================================================== ###
+
+library(ggplot2)
+library(tidyverse)
+library(ggridges)
+library(viridis)
+library(dotwhisker)
+
+# Ensure order
+referencia$region <- factor(referencia$region,
+                            levels = c("w32", "w79", "w214", "w271", "w413", "roiAD"))
+
+# Base plot for violin and ridge
+base_sens_plot <- ggplot(table, aes(x = roi, y = sensitivity, fill = method)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  theme_minimal(base_family = "serif", base_size = 12)
+
+### -----------------------------------------------
+### A. Violin + Boxplot Overlay
+### -----------------------------------------------
+violin_plot <- base_sens_plot +
+  geom_violin(trim = FALSE, alpha = 0.3, color = NA) +
+  geom_boxplot(width = 0.15, position = position_dodge(width = 0.9), outlier.size = 0.5) +
+  facet_wrap(~region, ncol = 3) +
+  xlab("Hypoactivity (%)") + ylab("Sensitivity (%)") +
+  scale_fill_brewer(palette = "Set1") +
+  labs(title = "Sensitivity: Violin + Boxplot Overlay")
+
+# ggsave("violin_sensitivity.png", violin_plot, width = 28, height = 18, units = "cm", dpi = 600)
+
+### -----------------------------------------------
+### B. Ridge Density Plot (Sensitivity per region)
+### -----------------------------------------------
+ridge_plot <- ggplot(table, aes(x = sensitivity, y = region, fill = method)) +
+  geom_density_ridges(alpha = 0.6, scale = 1.2, rel_min_height = 0.01) +
+  scale_fill_brewer(palette = "Set1") +
+  theme_ridges(font_family = "serif") +
+  labs(x = "Sensitivity (%)", y = "Region", title = "Density of Sensitivity per Region")
+
+# ggsave("ridge_sensitivity.png", ridge_plot, width = 20, height = 12, units = "cm", dpi = 600)
+
+### -----------------------------------------------
+### C. Heatmap (mean Sensitivity from referencia)
+### -----------------------------------------------
+heatmap_sens <- ggplot(referencia, aes(x = factor(roi), y = region, fill = sensMEAN)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis(name = "Sensitivity", option = "C") +
+  labs(x = "ROI", y = "Region", title = "Sensitivity (mean) by Region and ROI") +
+  theme_minimal(base_family = "serif")
+
+# ggsave("heatmap_sensitivity.png", heatmap_sens, width = 18, height = 14, units = "cm", dpi = 600)
+
+# Two plots
+referencia$region <- factor(referencia$region,
+                            levels = c("w32", "w79", "w214", "w271", "w413", "roiAD"))
+
+ggplot(referencia, aes(x = factor(roi), y = region, fill = sensMEAN)) +
+  geom_tile(color = "white") +
+  facet_wrap(~method) +
+  scale_fill_viridis(name = "Sensitivity", option = "C", limits = c(0, 100)) +
+  labs(x = "ROI", y = "Region", title = "Sensitivity (mean) by Method") +
+  theme_minimal(base_family = "serif")
+
+### -----------------------------------------------
+### D. Dot-and-Whisker Plot (mean metrics)
+### -----------------------------------------------
+metrics_long <- referencia |>
+  pivot_longer(cols = ends_with("MEAN"), names_to = "metric", values_to = "value") |>
+  filter(metric %in% c("sensMEAN", "espMEAN", "ppvMEAN", "npvMEAN"))
+
+dot_plot <- ggplot(metrics_long, aes(x = value, y = metric, color = method)) +
+  geom_point(size = 2.5) +
+  facet_wrap(~region) +
+  labs(title = "Mean Metrics by Region", x = "Percentage", y = "Metric") +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal(base_family = "serif")
+
+# ggsave("dot_metrics.png", dot_plot, width = 28, height = 16, units = "cm", dpi = 600)
+
+### -----------------------------------------------
+### E. Lineplot with Error Bars (summary trend)
+### -----------------------------------------------
+line_summary <- ggplot(referencia, aes(x = factor(roi), y = sensMEAN, group = method, color = method)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2.2) +
+  geom_errorbar(aes(ymin = sensMEAN - sensSD, ymax = sensMEAN + sensSD), width = 0.2) +
+  facet_wrap(~region) +
+  labs(x = "ROI", y = "Sensitivity (%)", title = "Sensitivity Trends Across ROIs") +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal(base_family = "serif")
+
+# ggsave("sensitivity_trend.png", line_summary, width = 28, height = 18, units = "cm", dpi = 600)
+
+
+### ==================================================== ###
+### 9) BRAIN-LEVEL VISUALIZATIONS                        ###
+### ==================================================== ###
+
+# Load custom visualization helpers
+source("Visualization Functions.R")
+
+# Set working directory for saving figures
+setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
+
+# Load SCC objects if not already loaded
+# load("z35/results/SCC_CN.RData")
+# load("z35/results/SCC_AD.RData")
+# load("z35/results/SCC_COMP_w32_1.RData")
+# load("z35/results/SCC_COMP_w214_4.RData") # example alternative
+
+# Example 1: Visualize SCC for a Control group (one-group SCC)
+plotSCCpanel(
+  scc = SCC_CN,                     # Alternative: SCC_AD
+  title = "SCC FOR CONTROL GROUP",   # Try: "SCC FOR PATHOLOGICAL GROUP"
+  zlim = "auto",                     # Try: c(-0.5, 0.5)
+  palette = "nih"                    # Try: "viridis", "gray"
+)
+
+# Example 2: Visualize Group vs Group SCC Comparison
+plotSCCcomparisonPanel(
+  scc = SCC_COMP_w32_1,              # Alternative: SCC_COMP_w214_4
+  title = "CONTROL vs PATHOLOGICAL COMPARISON",
+  label1 = "Pathological Group Mean",   # Can swap label order depending on Ya, Yb
+  label2 = "Control Group Mean",
+  label3 = "Detected Significant Regions",
+  zlim = "auto",                        # Try: c(-1, 1)
+  palette = "nih"                       # Try: "viridis"
+)
+
+# Alternative Group Comparison (example commented)
+# plotSCCcomparisonPanel(
+#   scc = SCC_COMP_w214_4,
+#   title = "Another Group Comparison",
+#   label1 = "AD Group Mean",
+#   label2 = "Control Group Mean",
+#   label3 = "SCC-Detected Hypo/Hyperactivity"
+# )
+
+# Example 3: Validation Panel (ROI vs SCC vs SPM points)
+# Precompute supporting objects:
+
+# Load the background template and control matrix if needed
+roiFile <- "Auxiliary Files/new_mask.nii"  # or another mask if you want
+matrixCN <- readRDS("z35/SCC_CN.RData")    # or load directly if not present
+
+# Load ROI points
+roiPoints <- neuroSCC::processROIs(
+  roiFile = file.path("roisNormalizadas", "wwwxw32_redim_crop_squ_flipLR_newDim_C1.nii"),
+  region = "w32",
+  number = "1",
+  save = FALSE,
+  verbose = FALSE
+)
+roiPoints <- subset(roiPoints, z == paramZ & pet == 1, select = c("x", "y"))
+
+# Load SCC comparison
+load("z35/results/SCC_COMP_w32_1.RData")
+sccPoints <- neuroSCC::getPoints(SCCcomp)
+
+# Load SPM detected points
+spmBinary <- "z35/SPM/ROI1_w32_01/binary.nii"
+spmPoints <- neuroSCC::getSPMbinary(spmBinary, paramZ = paramZ)
+
+# Plot
+plotValidationPanel(
+  template = roiFile,
+  backgroundMatrix = matrixCN,
+  roiPoints = roiPoints,
+  sccPoints = sccPoints,
+  spmPoints = spmPoints,
+  title = "Performance Validation Panel",
+  label1 = "Ground Truth (ROI)",
+  label2 = "SCC Detected",
+  label3 = "SPM Detected"
+)
+
+# Alternative Validation:
+# Use SCC_COMP_w214_4 and corresponding ROI + SPM binary
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

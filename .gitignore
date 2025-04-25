@@ -3,3 +3,6 @@
 .RData
 .Ruserdata
 /Auxiliary Files/data
+Auxiliary Files/databaseCN.RData
+Auxiliary Files/databaseAD.RData
+Auxiliary Files/database.RData
