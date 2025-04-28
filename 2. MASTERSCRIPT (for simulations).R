@@ -759,14 +759,19 @@ line_summary <- ggplot(referencia, aes(x = factor(roi), y = sensMEAN, group = me
 # Load custom visualization helpers
 source("Visualization Functions.R")
 
-# Set working directory for saving figures
-setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
+template <- system.file("extdata", "syntheticControl1.nii.gz", package = "neuroSCC")
+dims <- neuroSCC::getDimensions(template)
+Z <- as.matrix(expand.grid(y = 1:dims$yDim, x = 1:dims$xDim)[, c(2, 1)])
 
 # Load SCC objects if not already loaded
-# load("z35/results/SCC_CN.RData")
-# load("z35/results/SCC_AD.RData")
-# load("z35/results/SCC_COMP_w32_1.RData")
-# load("z35/results/SCC_COMP_w214_4.RData") # example alternative
+load("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z35/SCC_CN.RData")
+load("z35/SCC_roiAD_1.RData")
+load("z35/SCC_w32_4.RData")
+load("z35/results/SCC_COMP_w32_1.RData")
+load("z35/results/SCC_COMP_w214_4.RData") # example alternative
+
+# Set working directory for saving figures
+setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
 
 # Example 1: Visualize SCC for a Control group (one-group SCC)
 plotSCCpanel(
