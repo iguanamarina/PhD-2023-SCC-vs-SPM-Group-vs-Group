@@ -586,46 +586,37 @@ table <- readRDS(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z",
 library(tidyverse)
 library(lemon)
 library(gridExtra)
+library(ggridges)
+library(viridis)
+library(dotwhisker)
 
-# Prepare factor ordering
+# ====================================================
+# === FILTER DATA FIRST (only selected regions & ROIs) ===
+# ====================================================
+
+# Keep only regions w32, w214, w271, roiAD
+table <- table %>%
+  filter(region %in% c("w32", "w214", "w271", "roiAD")) %>%
+  filter(roi %in% c(1, 4, 8))  # keep hypo levels 1, 4, 8 only
+
+referencia <- referencia %>%
+  filter(region %in% c("w32", "w214", "w271", "roiAD")) %>%
+  filter(roi %in% c(1, 4, 8))
+
+# Update factor levels for new ROI labeling
 table$region <- factor(table$region,
-                       levels = c("w32", "w79", "w214", "w271", "w413", "roiAD"))
-table$roi <- factor(table$roi, levels = c(1, 2, 4, 6, 8), labels = c("10", "20", "40", "60", "80"))
+                       levels = c("w32", "w214", "w271", "roiAD"),
+                       labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4"))
+referencia$region <- factor(referencia$region,
+                            levels = c("w32", "w214", "w271", "roiAD"),
+                            labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4"))
+table$roi <- factor(table$roi, levels = c(1, 4, 8), labels = c("10", "40", "80"))
 
 # Set save directory
 setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
 
-
 ### ----------------------------------------------------------------
-### Sensitivity & Specificity for wroiAD — Primary Figure
-### ----------------------------------------------------------------
-
-graph1 <- ggplot(data = table %>% filter(region == "roiAD"), 
-                 aes(x = roi, y = sensitivity)) +
-  coord_cartesian(ylim = c(0, 100)) +
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
-  geom_boxplot(aes(fill = method)) +
-  xlab("Level of Induced Hypoactivity (%)") +
-  ylab("Sensitivity (%)") +
-  scale_fill_brewer(palette = "Set1")
-
-graph2 <- ggplot(data = table %>% filter(region == "roiAD"), 
-                 aes(x = roi, y = specificity)) +
-  geom_boxplot(aes(fill = method, col = method)) +
-  coord_cartesian(ylim = c(0, 100)) +
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
-  xlab("Level of Induced Hypoactivity (%)") +
-  ylab("Specificity (%)") +
-  scale_fill_brewer(palette = "Set1") +
-  scale_color_brewer(palette = "Set1") +
-  guides(col = FALSE)
-
-combined_graph <- grid.arrange(graph1, graph2, ncol = 2)
-ggsave(filename = paste0("sens_esp_wroiAD_", as.numeric(paramZ), ".png"), 
-       plot = combined_graph, width = 24, height = 18, units = "cm", dpi = 600)
-
-### ----------------------------------------------------------------
-### Sensitivity, Specificity, PPV, NPV across all regions & ROIs
+### Sensitivity, Specificity, PPV, NPV across all filtered regions
 ### ----------------------------------------------------------------
 
 plot_metric_by_region <- function(metric_name, y_label) {
@@ -634,7 +625,7 @@ plot_metric_by_region <- function(metric_name, y_label) {
     scale_y_continuous(breaks = scales::pretty_breaks(n = 10), limits = c(0, 100)) +
     xlab("Hypoactivity (%)") +
     ylab(y_label) +
-    facet_wrap(~region, ncol = 3) +
+    facet_wrap(~region, ncol = 2) +
     scale_fill_brewer(palette = "Set1") +
     theme_minimal(base_family = "serif") +
     theme(panel.border = element_blank(),
@@ -647,109 +638,72 @@ graph_esp  <- plot_metric_by_region("specificity", "Specificity (%)")
 graph_ppv  <- plot_metric_by_region("PPV", "Positive Predictive Value (%)")
 graph_npv  <- plot_metric_by_region("NPV", "Negative Predictive Value (%)")
 
-ggsave("sens_ALL.png", plot = graph_sens, width = 28.95, height = 18.3, units = "cm", dpi = 600)
-ggsave("esp_ALL.png", plot = graph_esp, width = 28.95, height = 18.3, units = "cm", dpi = 600)
-ggsave("ppv_ALL.png", plot = graph_ppv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
-ggsave("npv_ALL.png", plot = graph_npv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("sens_FILTERED.png", plot = graph_sens, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("esp_FILTERED.png", plot = graph_esp, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("ppv_FILTERED.png", plot = graph_ppv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("npv_FILTERED.png", plot = graph_npv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
 
-# Combined multi-metric view (optional)
-combined <- grid.arrange(graph_sens, graph_esp, graph_ppv, graph_npv, ncol = 2)
-ggsave("summary_metrics_ALL.png", plot = combined, width = 38, height = 28, units = "cm", dpi = 600)
+combined_filtered <- grid.arrange(graph_sens, graph_esp, graph_ppv, graph_npv, ncol = 2)
+ggsave("summary_metrics_FILTERED.png", plot = combined_filtered, width = 38, height = 28, units = "cm", dpi = 600)
 
 ### ==================================================== ###
-### OPTIONAL VISUALIZATION EXPERIMENTS                  ###
+### OPTIONAL VISUALIZATION EXPERIMENTS (Ridge + Heatmap) ###
 ### ==================================================== ###
 
-library(ggplot2)
-library(tidyverse)
-library(ggridges)
-library(viridis)
-library(dotwhisker)
-
-# Ensure order
-referencia$region <- factor(referencia$region,
-                            levels = c("w32", "w79", "w214", "w271", "w413", "roiAD"))
-
-# Base plot for violin and ridge
-base_sens_plot <- ggplot(table, aes(x = roi, y = sensitivity, fill = method)) +
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
-  theme_minimal(base_family = "serif", base_size = 12)
-
 ### -----------------------------------------------
-### A. Violin + Boxplot Overlay
+### Ridge plot: Sensitivity by Region
 ### -----------------------------------------------
-violin_plot <- base_sens_plot +
-  geom_violin(trim = FALSE, alpha = 0.3, color = NA) +
-  geom_boxplot(width = 0.15, position = position_dodge(width = 0.9), outlier.size = 0.5) +
-  facet_wrap(~region, ncol = 3) +
-  xlab("Hypoactivity (%)") + ylab("Sensitivity (%)") +
-  scale_fill_brewer(palette = "Set1") +
-  labs(title = "Sensitivity: Violin + Boxplot Overlay")
 
-# ggsave("violin_sensitivity.png", violin_plot, width = 28, height = 18, units = "cm", dpi = 600)
-
-### -----------------------------------------------
-### B. Ridge Density Plot (Sensitivity per region)
-### -----------------------------------------------
-ridge_plot <- ggplot(table, aes(x = sensitivity, y = region, fill = method)) +
+ridge_plot_sens <- ggplot(table, aes(x = sensitivity, y = region, fill = method)) +
   geom_density_ridges(alpha = 0.6, scale = 1.2, rel_min_height = 0.01) +
   scale_fill_brewer(palette = "Set1") +
   theme_ridges(font_family = "serif") +
-  labs(x = "Sensitivity (%)", y = "Region", title = "Density of Sensitivity per Region")
+  labs(x = "Sensitivity (%)", y = "Region", title = "Density of Sensitivity by Region")
 
-# ggsave("ridge_sensitivity.png", ridge_plot, width = 20, height = 12, units = "cm", dpi = 600)
+# ggsave("ridge_sensitivity_FILTERED.png", ridge_plot_sens, width = 28, height = 18, units = "cm", dpi = 600)
 
 ### -----------------------------------------------
-### C. Heatmap (mean Sensitivity from referencia)
+### Ridge plot: PPV by Region
 ### -----------------------------------------------
-heatmap_sens <- ggplot(referencia, aes(x = factor(roi), y = region, fill = sensMEAN)) +
-  geom_tile(color = "white") +
-  scale_fill_viridis(name = "Sensitivity", option = "C") +
-  labs(x = "ROI", y = "Region", title = "Sensitivity (mean) by Region and ROI") +
-  theme_minimal(base_family = "serif")
 
-# ggsave("heatmap_sensitivity.png", heatmap_sens, width = 18, height = 14, units = "cm", dpi = 600)
+ridge_plot_ppv <- ggplot(table, aes(x = PPV, y = region, fill = method)) +
+  geom_density_ridges(alpha = 0.6, scale = 1.2, rel_min_height = 0.01) +
+  scale_fill_brewer(palette = "Set1") +
+  theme_ridges(font_family = "serif") +
+  labs(x = "Positive Predictive Value (%)", y = "Region", title = "Density of PPV by Region")
 
-# Two plots
-referencia$region <- factor(referencia$region,
-                            levels = c("w32", "w79", "w214", "w271", "w413", "roiAD"))
+# ggsave("ridge_ppv_FILTERED.png", ridge_plot_ppv, width = 28, height = 18, units = "cm", dpi = 600)
 
-ggplot(referencia, aes(x = factor(roi), y = region, fill = sensMEAN)) +
+### -----------------------------------------------
+### Double-faceted Heatmap: Sensitivity
+### -----------------------------------------------
+
+heatmap_sens_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = sensMEAN)) +
   geom_tile(color = "white") +
   facet_wrap(~method) +
   scale_fill_viridis(name = "Sensitivity", option = "C", limits = c(0, 100)) +
-  labs(x = "ROI", y = "Region", title = "Sensitivity (mean) by Method") +
+  labs(x = "Hypoactivity Level (%)", y = "Region", title = "Sensitivity (mean) by Method") +
   theme_minimal(base_family = "serif")
 
-### -----------------------------------------------
-### D. Dot-and-Whisker Plot (mean metrics)
-### -----------------------------------------------
-metrics_long <- referencia |>
-  pivot_longer(cols = ends_with("MEAN"), names_to = "metric", values_to = "value") |>
-  filter(metric %in% c("sensMEAN", "espMEAN", "ppvMEAN", "npvMEAN"))
+# ggsave("heatmap_sensitivity_FILTERED.png", heatmap_sens_facet, width = 28, height = 14, units = "cm", dpi = 600)
 
-dot_plot <- ggplot(metrics_long, aes(x = value, y = metric, color = method)) +
-  geom_point(size = 2.5) +
-  facet_wrap(~region) +
-  labs(title = "Mean Metrics by Region", x = "Percentage", y = "Metric") +
-  scale_color_brewer(palette = "Set1") +
+### -----------------------------------------------
+### Double-faceted Heatmap: PPV
+### -----------------------------------------------
+
+heatmap_ppv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = ppvMEAN)) +
+  geom_tile(color = "white") +
+  facet_wrap(~method) +
+  scale_fill_viridis(name = "PPV", option = "C", limits = c(0, 100)) +
+  labs(x = "Hypoactivity Level (%)", y = "Region", title = "PPV (mean) by Method") +
   theme_minimal(base_family = "serif")
 
-# ggsave("dot_metrics.png", dot_plot, width = 28, height = 16, units = "cm", dpi = 600)
+# ggsave("heatmap_ppv_FILTERED.png", heatmap_ppv_facet, width = 28, height = 14, units = "cm", dpi = 600)
 
-### -----------------------------------------------
-### E. Lineplot with Error Bars (summary trend)
-### -----------------------------------------------
-line_summary <- ggplot(referencia, aes(x = factor(roi), y = sensMEAN, group = method, color = method)) +
-  geom_line(size = 1.2) +
-  geom_point(size = 2.2) +
-  geom_errorbar(aes(ymin = sensMEAN - sensSD, ymax = sensMEAN + sensSD), width = 0.2) +
-  facet_wrap(~region) +
-  labs(x = "ROI", y = "Sensitivity (%)", title = "Sensitivity Trends Across ROIs") +
-  scale_color_brewer(palette = "Set1") +
-  theme_minimal(base_family = "serif")
 
-# ggsave("sensitivity_trend.png", line_summary, width = 28, height = 18, units = "cm", dpi = 600)
+
+
+
 
 
 ### ==================================================== ###
@@ -757,6 +711,7 @@ line_summary <- ggplot(referencia, aes(x = factor(roi), y = sensMEAN, group = me
 ### ==================================================== ###
 
 # Load custom visualization helpers
+setwd("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group")
 source("Visualization Functions.R")
 
 template <- system.file("extdata", "syntheticControl1.nii.gz", package = "neuroSCC")
