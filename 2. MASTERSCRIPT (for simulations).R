@@ -611,6 +611,7 @@ referencia$region <- factor(referencia$region,
                             levels = c("w32", "w214", "w271", "roiAD"),
                             labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4"))
 table$roi <- factor(table$roi, levels = c(1, 4, 8), labels = c("10", "40", "80"))
+referencia$roi <- factor(referencia$roi, levels = c(1, 4, 8), labels = c("10", "40", "80"))
 
 # Set save directory
 setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
