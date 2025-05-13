@@ -91,10 +91,6 @@ if (!file.exists(triangulation_path)) {
   message("[INFO] Triangulation already exists. Skipping generation.")
 }
 
-#* Clean up
-rm(mask_path, triangulation_path, contours, triangulation)
-
-
 ### ==================================================== ###
 ###     3) CREATE SCC MATRIX FOR CONTROL GROUP          ###
 ### ==================================================== ###
@@ -796,21 +792,25 @@ load("z35/SCC_roiAD_1.RData")
 load("z35/SCC_w32_4.RData")
 load("z35/results/SCC_COMP_w32_1.RData")
 load("z35/results/SCC_COMP_w214_4.RData") # example alternative
+sccOneGroup <- readRDS("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z35/sccOneGroup.RDS")
 
 # Set working directory for saving figures
 setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
 
 # Example 1: Visualize SCC for a Control group (one-group SCC)
+
+oneGroupSCC <- readRDS("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/oneGroupSCC.rds")
+
 plotSCCpanel(
-  scc = SCC_CN,                     # Alternative: SCC_AD
-  title = "SCC FOR CONTROL GROUP",   # Try: "SCC FOR PATHOLOGICAL GROUP"
+  scc = oneGroupSCC,                     # Alternative: SCC_AD
+  title = "",   # Try: "SCC FOR PATHOLOGICAL GROUP"
   zlim = "auto",                     # Try: c(-0.5, 0.5)
   palette = "nih"                    # Try: "viridis", "gray"
 )
 
 # Example 2: Visualize Group vs Group SCC Comparison
 plotSCCcomparisonPanel(
-  scc = SCC_COMP_w32_1,              # Alternative: SCC_COMP_w214_4
+  scc = SCC_COMP,              # Alternative: SCC_COMP_w214_4
   title = "CONTROL vs PATHOLOGICAL COMPARISON",
   label1 = "Pathological Group Mean",   # Can swap label order depending on Ya, Yb
   label2 = "Control Group Mean",
@@ -833,7 +833,7 @@ plotSCCcomparisonPanel(
 
 # Load the background template and control matrix if needed
 roiFile <- "Auxiliary Files/new_mask.nii"  # or another mask if you want
-matrixCN <- readRDS("z35/SCC_CN.RData")    # or load directly if not present
+load("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z35/SCC_CN.RData")    # or load directly if not present
 
 # Load ROI points
 roiPoints <- neuroSCC::processROIs(
@@ -847,7 +847,7 @@ roiPoints <- subset(roiPoints, z == paramZ & pet == 1, select = c("x", "y"))
 
 # Load SCC comparison
 load("z35/results/SCC_COMP_w32_1.RData")
-sccPoints <- neuroSCC::getPoints(SCCcomp)
+sccPoints <- neuroSCC::getPoints(SCC_COMP)
 
 # Load SPM detected points
 spmBinary <- "z35/SPM/ROI1_w32_01/binary.nii"
@@ -856,7 +856,7 @@ spmPoints <- neuroSCC::getSPMbinary(spmBinary, paramZ = paramZ)
 # Plot
 plotValidationPanel(
   template = roiFile,
-  backgroundMatrix = matrixCN,
+  backgroundMatrix = SCC_CN,
   roiPoints = roiPoints,
   sccPoints = sccPoints,
   spmPoints = spmPoints,

@@ -78,7 +78,10 @@ plotSCCcomparisonPanel <- function(scc,
                                    palette = "nih",
                                    label1 = "Group 1 Mean",
                                    label2 = "Group 2 Mean",
-                                   label3 = "SCC Overlay") {
+                                   label3 = "SCC Overlay",
+                                   overlay = c("positive", "negative", "both", "none"),
+                                   useRawMeans = FALSE) {
+  
   if (!requireNamespace("ggplot2", quietly = TRUE)) stop("ggplot2 is required.")
   if (!requireNamespace("patchwork", quietly = TRUE)) stop("patchwork is required.")
   if (!requireNamespace("fields", quietly = TRUE)) stop("fields is required.")
@@ -86,26 +89,27 @@ plotSCCcomparisonPanel <- function(scc,
   if (!requireNamespace("scales", quietly = TRUE)) stop("scales is required.")
   if (!requireNamespace("neuroSCC", quietly = TRUE)) stop("neuroSCC is required.")
   
-  # 1. Extract coordinates and PET means
-  Z <- scc$Z.band
-  if (is.null(Z) || is.null(scc$Ya) || is.null(scc$Yb)) {
-    stop("SCC object must include Z.band, Ya, and Yb.")
+  overlay <- match.arg(overlay)
+  
+  # 1. Extract coordinates and means
+  if (!is.null(scc$Yhat) && !useRawMeans) {
+    Z <- scc$Z[scc$ind.inside.cover, , drop = FALSE]
+    mean1_vals <- scc$Yhat[1, ]
+    mean2_vals <- scc$Yhat[2, ]
+  } else {
+    Z <- scc$Z.band
+    mean1_vals <- colMeans(scc$Ya)
+    mean2_vals <- colMeans(scc$Yb)
   }
   
-  mean1_vals <- colMeans(scc$Ya)
-  mean2_vals <- colMeans(scc$Yb)
-  
-  # Mask: only voxels with nonzero signal in at least one group
-  mask <- (mean1_vals != 0 | mean2_vals != 0)
-  
-  df1 <- data.frame(x = Z[mask, 1], y = Z[mask, 2], value = mean1_vals[mask])
-  df2 <- data.frame(x = Z[mask, 1], y = Z[mask, 2], value = mean2_vals[mask])
-  df3 <- df2  # used for grayscale background
+  df1 <- data.frame(x = Z[, 1], y = Z[, 2], value = mean1_vals)
+  df2 <- data.frame(x = Z[, 1], y = Z[, 2], value = mean2_vals)
+  df3 <- df2  # grayscale PET background
   
   # 2. Overlay points
-  overlay <- neuroSCC::getPoints(scc)
-  posPts <- overlay$positivePoints
-  negPts <- overlay$negativePoints
+  overlayPts <- neuroSCC::getPoints(scc)
+  posPts <- overlayPts$positivePoints
+  negPts <- overlayPts$negativePoints
   
   # 3. Axis labels and title
   xDim <- max(Z[, 1], na.rm = TRUE)
@@ -165,13 +169,13 @@ plotSCCcomparisonPanel <- function(scc,
       legend.position = "none"
     )
   
-  if (nrow(negPts) > 0) {
-    p3 <- p3 + ggplot2::geom_point(data = negPts, ggplot2::aes(x = x, y = y), inherit.aes = FALSE,
-                                   color = "red", size = 1.6, shape = 17)
-  }
-  if (nrow(posPts) > 0) {
+  if (overlay %in% c("positive", "both") && nrow(posPts) > 0) {
     p3 <- p3 + ggplot2::geom_point(data = posPts, ggplot2::aes(x = x, y = y), inherit.aes = FALSE,
                                    color = "blue", size = 1.6, shape = 15)
+  }
+  if (overlay %in% c("negative", "both") && nrow(negPts) > 0) {
+    p3 <- p3 + ggplot2::geom_point(data = negPts, ggplot2::aes(x = x, y = y), inherit.aes = FALSE,
+                                   color = "red", size = 1.6, shape = 17)
   }
   
   # 7. Assemble layout
@@ -187,6 +191,7 @@ plotSCCcomparisonPanel <- function(scc,
     )
 }
 
+
 ### ==================================================== ###
 ### plotValidationPanel — ROI vs SCC vs SPM overlay plot  ###
 ### ==================================================== ###
@@ -196,35 +201,42 @@ plotValidationPanel <- function(template,
                                 roiPoints,
                                 sccPoints,
                                 spmPoints,
-                                title = "COMPARISON PANEL",
-                                label1 = "True ROI",
+                                title = "Performance Validation Panel",
+                                label1 = "Ground Truth (ROI)",
                                 label2 = "SCC Detected",
-                                label3 = "SPM Detected") {
+                                label3 = "SPM Detected",
+                                overlay = c("positive", "negative", "both", "none")) {
+  
   stopifnot(requireNamespace("ggplot2", quietly = TRUE))
   stopifnot(requireNamespace("patchwork", quietly = TRUE))
   stopifnot(requireNamespace("neuroSCC", quietly = TRUE))
   
+  overlay <- match.arg(overlay)
+  
   dims <- neuroSCC::getDimensions(template)
   Z <- as.matrix(expand.grid(y = 1:dims$yDim, x = 1:dims$xDim)[, c(2, 1)])
+  if (ncol(backgroundMatrix) != nrow(Z)) {
+    stop("backgroundMatrix must have columns equal to number of voxels in slice.")
+  }
+  
   dfBase <- data.frame(x = Z[, 1], y = Z[, 2], value = colMeans(backgroundMatrix))
   
-  xlab <- paste0("Horizontal (0–", dims$xDim, ")")
-  ylab <- paste0("Longitudinal (0–", dims$yDim, ")")
+  xlab <- paste0("Horizontal (0-", dims$xDim, ")")
+  ylab <- paste0("Longitudinal (0-", dims$yDim, ")")
   
   fill_scale <- ggplot2::scale_fill_gradient(low = "black", high = "white", name = NULL)
   
   base_theme <- ggplot2::theme_minimal(base_family = "serif") +
     ggplot2::theme(
       panel.background = ggplot2::element_rect(fill = "white", color = NA),
-      plot.background = ggplot2::element_rect(fill = "white", color = NA),
-      panel.grid = ggplot2::element_blank(),
-      axis.text = ggplot2::element_text(size = 8, family = "serif"),
-      axis.ticks = ggplot2::element_line(size = 0.2),
-      plot.title = ggplot2::element_text(hjust = 0.5, size = 11, face = "plain", family = "serif"),
-      legend.position = "none"
+      plot.background  = ggplot2::element_rect(fill = "white", color = NA),
+      panel.grid       = ggplot2::element_blank(),
+      axis.text        = ggplot2::element_text(size = 9),
+      axis.ticks       = ggplot2::element_line(size = 0.2),
+      legend.position  = "none"
     )
   
-  # Panel 1 – Ground Truth ROI
+  # --- Panel 1: ROI Ground Truth ---
   p1 <- ggplot2::ggplot(dfBase, ggplot2::aes(x = x, y = y, fill = value)) +
     ggplot2::geom_tile() +
     fill_scale +
@@ -233,27 +245,36 @@ plotValidationPanel <- function(template,
     ggplot2::coord_fixed() +
     ggplot2::labs(title = label1, x = NULL, y = ylab) +
     base_theme +
-    ggplot2::theme(axis.title.y = ggplot2::element_text(size = 10, margin = ggplot2::margin(r = 10)))
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 12, hjust = 0.5),
+      plot.title.position = "panel",
+      axis.title.y = ggplot2::element_text(size = 12, margin = ggplot2::margin(r = 10))
+    )
   
-  # Panel 2 – SCC
+  # --- Panel 2: SCC Detected ---
   p2 <- ggplot2::ggplot(dfBase, ggplot2::aes(x = x, y = y, fill = value)) +
     ggplot2::geom_tile() +
     fill_scale +
     ggplot2::coord_fixed() +
     ggplot2::labs(title = label2, x = xlab, y = NULL) +
     base_theme +
-    ggplot2::theme(axis.title.x = ggplot2::element_text(size = 10, margin = ggplot2::margin(t = 10)))
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 12, hjust = 0.5),
+      plot.title.position = "panel",
+      axis.title.x = ggplot2::element_text(size = 12, margin = ggplot2::margin(t = 10)),
+      axis.title.y = ggplot2::element_blank()
+    )
   
-  if (nrow(sccPoints$positivePoints) > 0) {
+  if (overlay %in% c("positive", "both") && nrow(sccPoints$positivePoints) > 0) {
     p2 <- p2 + ggplot2::geom_point(data = sccPoints$positivePoints, ggplot2::aes(x = x, y = y),
                                    inherit.aes = FALSE, color = "blue", size = 1.2, shape = 15)
   }
-  if (nrow(sccPoints$negativePoints) > 0) {
+  if (overlay %in% c("negative", "both") && nrow(sccPoints$negativePoints) > 0) {
     p2 <- p2 + ggplot2::geom_point(data = sccPoints$negativePoints, ggplot2::aes(x = x, y = y),
                                    inherit.aes = FALSE, color = "red", size = 1.2, shape = 17)
   }
   
-  # Panel 3 – SPM
+  # --- Panel 3: SPM Detected ---
   p3 <- ggplot2::ggplot(dfBase, ggplot2::aes(x = x, y = y, fill = value)) +
     ggplot2::geom_tile() +
     fill_scale +
@@ -261,8 +282,14 @@ plotValidationPanel <- function(template,
                         inherit.aes = FALSE, color = "blue", size = 1.2, shape = 15) +
     ggplot2::coord_fixed() +
     ggplot2::labs(title = label3, x = NULL, y = NULL) +
-    base_theme
+    base_theme +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 12, hjust = 0.5),
+      plot.title.position = "panel",
+      axis.title.y = ggplot2::element_blank()
+    )
   
+  # --- Assemble all three panels ---
   patchwork::wrap_plots(p1, p2, p3, nrow = 1) +
     patchwork::plot_annotation(
       title = toupper(title),
