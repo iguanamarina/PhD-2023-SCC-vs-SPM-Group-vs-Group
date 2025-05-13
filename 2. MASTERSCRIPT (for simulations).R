@@ -544,10 +544,6 @@ for (region in regions) {
   }
 }
 
-# Save full version
-saveRDS(SCC_vs_SPM_complete, file = "z35/results/SCC_vs_SPM_complete.RDS")
-write_csv(SCC_vs_SPM_complete, "z35/results/SCC_vs_SPM_complete.csv")
-
 # Create grouped summary (mean ± SD)
 SCC_vs_SPM <- SCC_vs_SPM_complete |>
   group_by(method, region, roi) |>
@@ -564,12 +560,115 @@ SCC_vs_SPM <- SCC_vs_SPM_complete |>
   ) |>
   arrange(method, region, roi)
 
+# ====================================================
+# === FILTER DATA FIRST (only selected regions & ROIs) ===
+# ====================================================
+
+# Keep only regions w32, w214, w271, roiAD
+SCC_vs_SPM_complete <- SCC_vs_SPM_complete %>%
+  filter(region %in% c("w32", "w214", "w271", "roiAD")) %>%
+  filter(roi %in% c(1, 4, 8))  # keep hypo levels 1, 4, 8 only
+
+SCC_vs_SPM <- SCC_vs_SPM %>%
+  filter(region %in% c("w32", "w214", "w271", "roiAD")) %>%
+  filter(roi %in% c(1, 4, 8))
+
+# Update factor levels for new ROI labeling
+SCC_vs_SPM_complete$region <- factor(SCC_vs_SPM_complete$region,
+                       levels = c("w32", "w214", "w271", "roiAD"),
+                       labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4"))
+SCC_vs_SPM$region <- factor(SCC_vs_SPM$region,
+                            levels = c("w32", "w214", "w271", "roiAD"),
+                            labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4"))
+SCC_vs_SPM_complete$roi <- factor(SCC_vs_SPM_complete$roi, levels = c(1, 4, 8), 
+                                  labels = c("10", "40", "80"))
+SCC_vs_SPM$roi <- factor(SCC_vs_SPM$roi, levels = c(1, 4, 8), labels = c("10", "40", "80"))
+
 # Save summary version
 saveRDS(SCC_vs_SPM, file = "z35/results/SCC_vs_SPM.RDS")
 write_csv(SCC_vs_SPM, "z35/results/SCC_vs_SPM.csv")
 
+# Save full version
+saveRDS(SCC_vs_SPM_complete, file = "z35/results/SCC_vs_SPM_complete.RDS")
+write_csv(SCC_vs_SPM_complete, "z35/results/SCC_vs_SPM_complete.csv")
+
 # Clean up
 rm(tempSCC, tempSPM, fileSCC, fileSPM, resultFolder)
+
+
+### ==================================================== ###
+### 7B) STATISTICAL SIGNIFICANCE TESTS (Paired T-Tests) ###
+### ==================================================== ###
+
+library(dplyr)
+library(tidyr)
+library(readr)
+
+#* Helper to assign stars
+get_stars <- function(p) {
+  if (is.na(p)) return("")
+  if (p <= 0.001) return("***")
+  if (p <= 0.01)  return("**")
+  if (p <= 0.05)  return("*")
+  return("")
+}
+
+#* Ensure tibble
+SCC_vs_SPM_complete <- as_tibble(SCC_vs_SPM_complete)
+
+#* Initialize result list
+pvalue_table <- list()
+
+#* Loop over each region × roi
+for (reg in levels(SCC_vs_SPM_complete$region)) {
+  for (r in levels(SCC_vs_SPM_complete$roi)) {
+    
+    subset_data <- SCC_vs_SPM_complete %>%
+      filter(region == reg, roi == r)
+    
+    # Check both methods are present
+    if (!all(c("SCC", "SPM") %in% unique(subset_data$method))) next
+    
+    # Prepare data for paired comparison
+    wide_data <- subset_data %>%
+      dplyr::select(method, subject, sensitivity, specificity, PPV, NPV) %>%
+      pivot_wider(names_from = method, values_from = c(sensitivity, specificity, PPV, NPV)) %>%
+      drop_na()
+    
+    # Run paired t-tests
+    t_sens <- t.test(wide_data$sensitivity_SCC, wide_data$sensitivity_SPM, paired = TRUE)
+    t_esp  <- t.test(wide_data$specificity_SCC, wide_data$specificity_SPM, paired = TRUE)
+    t_ppv  <- t.test(wide_data$PPV_SCC, wide_data$PPV_SPM, paired = TRUE)
+    t_npv  <- t.test(wide_data$NPV_SCC, wide_data$NPV_SPM, paired = TRUE)
+    
+    # Store results
+    pvalue_table[[paste(reg, r, sep = "_")]] <- tibble(
+      region = reg,
+      roi = r,
+      p_sens = t_sens$p.value,
+      sig_sens = get_stars(t_sens$p.value),
+      p_esp = t_esp$p.value,
+      sig_esp = get_stars(t_esp$p.value),
+      p_ppv = t_ppv$p.value,
+      sig_ppv = get_stars(t_ppv$p.value),
+      p_npv = t_npv$p.value,
+      sig_npv = get_stars(t_npv$p.value)
+    )
+  }
+}
+
+#* Combine into one table
+pvalue_table_Groups <- bind_rows(pvalue_table)
+
+#* Save results
+write_csv(pvalue_table_Groups, "z35/results/pvalue_table_group.csv")
+saveRDS(pvalue_table_Groups, "z35/results/pvalue_table_group.RDS")
+
+#* Print preview
+print(pvalue_table_Groups)
+
+#* Clean up
+rm(get_stars, wide_data, subset_data, t_sens, t_esp, t_ppv, t_npv)
 
 
 ### ==================================================== ###
@@ -589,29 +688,6 @@ library(gridExtra)
 library(ggridges)
 library(viridis)
 library(dotwhisker)
-
-# ====================================================
-# === FILTER DATA FIRST (only selected regions & ROIs) ===
-# ====================================================
-
-# Keep only regions w32, w214, w271, roiAD
-table <- table %>%
-  filter(region %in% c("w32", "w214", "w271", "roiAD")) %>%
-  filter(roi %in% c(1, 4, 8))  # keep hypo levels 1, 4, 8 only
-
-referencia <- referencia %>%
-  filter(region %in% c("w32", "w214", "w271", "roiAD")) %>%
-  filter(roi %in% c(1, 4, 8))
-
-# Update factor levels for new ROI labeling
-table$region <- factor(table$region,
-                       levels = c("w32", "w214", "w271", "roiAD"),
-                       labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4"))
-referencia$region <- factor(referencia$region,
-                            levels = c("w32", "w214", "w271", "roiAD"),
-                            labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4"))
-table$roi <- factor(table$roi, levels = c(1, 4, 8), labels = c("10", "40", "80"))
-referencia$roi <- factor(referencia$roi, levels = c(1, 4, 8), labels = c("10", "40", "80"))
 
 # Set save directory
 setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
@@ -700,11 +776,6 @@ heatmap_ppv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = 
   theme_minimal(base_family = "serif")
 
 # ggsave("heatmap_ppv_FILTERED.png", heatmap_ppv_facet, width = 28, height = 14, units = "cm", dpi = 600)
-
-
-
-
-
 
 
 ### ==================================================== ###
