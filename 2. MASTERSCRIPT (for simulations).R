@@ -600,6 +600,10 @@ library(dplyr)
 library(tidyr)
 library(readr)
 
+# Load data (summary and full evaluation)
+SCC_vs_SPM_complete <- readRDS(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", 
+                        as.numeric(paramZ), "/results/SCC_vs_SPM_complete.RDS"))
+
 #* Helper to assign stars
 get_stars <- function(p) {
   if (is.na(p)) return("")
@@ -666,6 +670,22 @@ print(pvalue_table_Groups)
 #* Clean up
 rm(get_stars, wide_data, subset_data, t_sens, t_esp, t_ppv, t_npv)
 
+# Reorder p-values and labels
+pvals_sens_clean <- pvalue_table_Groups %>%
+  dplyr::select(region, roi, p_sens) %>%
+  mutate(
+    region = as.character(region),
+    roi = as.character(roi),
+    group1 = "SCC",
+    group2 = "SPM",
+    label = case_when(
+      p_sens <= 0.001 ~ paste0(formatC(p_sens, digits = 3, format = "f"), "***"),
+      p_sens <= 0.01  ~ paste0(formatC(p_sens, digits = 3, format = "f"), "**"),
+      p_sens <= 0.05  ~ paste0(formatC(p_sens, digits = 3, format = "f"), "*"),
+      TRUE            ~ formatC(p_sens, digits = 3, format = "f")
+    )
+  )
+
 
 ### ==================================================== ###
 ### 8) VISUALIZATIONS                                   ###
@@ -687,6 +707,158 @@ library(dotwhisker)
 
 # Set save directory
 setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
+
+### ----------------------------------------------------------------
+### Sensitivity, Specificity, PPV, NPV across all filtered regions with asterisks
+### ----------------------------------------------------------------
+
+plot_roi_grouped_with_asterisks <- function(table, pval_table, p_col = "p_sens", metric = "sensitivity", y_label = "Sensitivity (%)") {
+  library(ggplot2)
+  library(dplyr)
+  
+  dodge_width <- 0.8
+  
+  # 1. Prepare the input table
+  table <- table %>%
+    mutate(
+      method = factor(method, levels = c("SCC", "SPM")),
+      roi = factor(roi, levels = c("10", "40", "80")),
+      region = factor(region)
+    )
+  
+  # 2. Clean and label brackets (only asterisks)
+  pval_clean <- pval_table %>%
+    dplyr::select(region, roi, !!sym(p_col)) %>%
+    mutate(
+      region = as.character(region),
+      roi = as.character(roi),
+      group1 = "SCC",
+      group2 = "SPM",
+      label = case_when(
+        !!sym(p_col) <= 0.001 ~ "***",
+        !!sym(p_col) <= 0.01  ~ "**",
+        !!sym(p_col) <= 0.05  ~ "*",
+        TRUE                  ~ "ns"
+      )
+    )
+  
+  # 3. Match panel structure
+  valid_panels <- table %>%
+    distinct(region, roi) %>%
+    mutate(across(everything(), as.character))
+  pval_clean <- semi_join(pval_clean, valid_panels, by = c("region", "roi"))
+  
+  # 4. Compute height of bracket
+  bracket_y <- table %>%
+    group_by(region, roi) %>%
+    summarise(y.position = max(.data[[metric]], na.rm = TRUE) + 5, .groups = "drop") %>%
+    mutate(across(c(region, roi), as.character))
+  
+  # 5. Merge brackets
+  bracket_data <- pval_clean %>%
+    left_join(bracket_y, by = c("region", "roi")) %>%
+    mutate(
+      x = as.numeric(factor(roi, levels = c("10", "40", "80"))),
+      x1 = x - dodge_width / 4,
+      x2 = x + dodge_width / 4,
+      label_y = y.position + 2
+    )
+  
+  # 6. Final plot
+  ggplot(table, aes(x = roi, y = .data[[metric]], fill = method)) +
+    geom_boxplot(
+      position = position_dodge(width = dodge_width),
+      width = 0.6,
+      outlier.size = 0.5,
+      lwd = 0.25
+    ) +
+    facet_wrap(~region, ncol = 2) +
+    scale_fill_brewer(palette = "Set1") +
+    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.1))) +
+    xlab("Hypoactivity (%)") + ylab(y_label) +
+    theme_minimal(base_family = "serif") +
+    theme(
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      legend.text = element_text(size = 14),
+      axis.title = element_text(size = 15),
+      axis.text = element_text(size = 12),
+      strip.text = element_text(size = 15),
+      panel.spacing = unit(1, "lines")
+    ) +
+    # Bracket bar
+    geom_segment(
+      data = bracket_data,
+      aes(x = x1, xend = x2, y = y.position, yend = y.position),
+      linewidth = 0.5,
+      inherit.aes = FALSE
+    ) +
+    # Left vertical arm
+    geom_segment(
+      data = bracket_data,
+      aes(x = x1, xend = x1, y = y.position, yend = y.position - 2),
+      linewidth = 0.5,
+      inherit.aes = FALSE
+    ) +
+    # Right vertical arm
+    geom_segment(
+      data = bracket_data,
+      aes(x = x2, xend = x2, y = y.position, yend = y.position - 2),
+      linewidth = 0.5,
+      inherit.aes = FALSE
+    ) +
+    # Asterisk-only label
+    geom_text(
+      data = bracket_data,
+      aes(x = x, y = label_y, label = label),
+      size = 5,
+      family = "serif",
+      inherit.aes = FALSE
+    )
+}
+
+# Set wd() for figure export
+setwd("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z35/Figures")
+
+# Create all 4 plots
+graph_sens <- plot_roi_grouped_with_asterisks(
+  table = table,
+  pval_table = pvalue_table_Groups,
+  p_col = "p_sens",
+  metric = "sensitivity",
+  y_label = "Sensitivity (%)"
+)
+
+graph_esp <- plot_roi_grouped_with_asterisks(
+  table = table,
+  pval_table = pvalue_table_Groups,
+  p_col = "p_esp",
+  metric = "specificity",
+  y_label = "Specificity (%)"
+)
+
+graph_ppv <- plot_roi_grouped_with_asterisks(
+  table = table,
+  pval_table = pvalue_table_Groups,
+  p_col = "p_ppv",
+  metric = "PPV",
+  y_label = "Positive Predictive Value (%)"
+)
+
+graph_npv <- plot_roi_grouped_with_asterisks(
+  table = table,
+  pval_table = pvalue_table_Groups,
+  p_col = "p_npv",
+  metric = "NPV",
+  y_label = "Negative Predictive Value (%)"
+)
+
+# Save to PNGs
+ggsave("sens_FILTERED.png", plot = graph_sens, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("esp_FILTERED.png", plot = graph_esp, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("ppv_FILTERED.png", plot = graph_ppv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+ggsave("npv_FILTERED.png", plot = graph_npv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+
 
 ### ----------------------------------------------------------------
 ### Sensitivity, Specificity, PPV, NPV across all filtered regions
@@ -716,8 +888,6 @@ ggsave("esp_FILTERED.png", plot = graph_esp, width = 28.95, height = 18.3, units
 ggsave("ppv_FILTERED.png", plot = graph_ppv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
 ggsave("npv_FILTERED.png", plot = graph_npv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
 
-combined_filtered <- grid.arrange(graph_sens, graph_esp, graph_ppv, graph_npv, ncol = 2)
-ggsave("summary_metrics_FILTERED.png", plot = combined_filtered, width = 38, height = 28, units = "cm", dpi = 600)
 
 ### ==================================================== ###
 ### OPTIONAL VISUALIZATION EXPERIMENTS (Ridge + Heatmap) ###
@@ -748,17 +918,132 @@ ridge_plot_ppv <- ggplot(table, aes(x = PPV, y = region, fill = method)) +
 # ggsave("ridge_ppv_FILTERED.png", ridge_plot_ppv, width = 28, height = 18, units = "cm", dpi = 600)
 
 ### -----------------------------------------------
-### Double-faceted Heatmap: Sensitivity
+### Double-faceted Heatmap: Sensitivity & Specificity
 ### -----------------------------------------------
 
+library(ggplot2)
+library(patchwork)
+library(grid)  # for unit()
+
+# Heatmap for Sensitivity
 heatmap_sens_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = sensMEAN)) +
   geom_tile(color = "white") +
   facet_wrap(~method) +
-  scale_fill_viridis(name = "Sensitivity", option = "C", limits = c(0, 100)) +
-  labs(x = "Hypoactivity Level (%)", y = "Region", title = "Sensitivity (mean) by Method") +
-  theme_minimal(base_family = "serif")
+  scale_fill_gradient2(
+    name = NULL,
+    low = "red", mid = "yellow", high = "green",
+    midpoint = 50,
+    limits = c(0, 100)
+  ) +
+  labs(
+    x = "Hypoactivity Level (%)",
+    y = "Region",
+    title = "Mean Sensitivity by Method"
+  ) +
+  theme_minimal(base_family = "serif") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.key.width = unit(2, "cm")  # widen legend
+  )
 
-# ggsave("heatmap_sensitivity_FILTERED.png", heatmap_sens_facet, width = 28, height = 14, units = "cm", dpi = 600)
+# Heatmap for Specificity
+heatmap_spec_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = espMEAN)) +
+  geom_tile(color = "white") +
+  facet_wrap(~method) +
+  scale_fill_gradient2(
+    name = NULL,
+    low = "red", mid = "yellow", high = "green",
+    midpoint = 50,
+    limits = c(0, 100)
+  ) +
+  labs(
+    x = "Hypoactivity Level (%)",
+    y = NULL,  # remove y label entirely
+    title = "Mean Specificity by Method"
+  ) +
+  theme_minimal(base_family = "serif") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.key.width = unit(2, "cm"),
+    axis.title.y = element_blank()  # removes y-axis label on second plot
+  )
+
+# Combine
+combined_heatmap_sens_esp <- heatmap_sens_facet + heatmap_spec_facet +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+# Show
+combined_heatmap_sens_esp
+
+ggsave("combined_heatmap_sens_esp.png", combined_heatmap_sens_esp, width = 28, height = 20, units = "cm", dpi = 600)
+
+### ------------------------------------------------------
+### Double-faceted Heatmap: PPV & NPV
+### ------------------------------------------------------
+
+# Heatmap for PPV
+heatmap_ppv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = ppvMEAN)) +
+  geom_tile(color = "white") +
+  facet_wrap(~method) +
+  scale_fill_gradient2(
+    name = NULL,
+    low = "red", mid = "yellow", high = "green",
+    midpoint = 50,
+    limits = c(0, 100)
+  ) +
+  labs(
+    x = "Hypoactivity Level (%)",
+    y = "Region",
+    title = "Mean PPV by Method"
+  ) +
+  theme_minimal(base_family = "serif") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.key.width = unit(2, "cm")
+  )
+
+# Heatmap for NPV
+heatmap_npv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = npvMEAN)) +
+  geom_tile(color = "white") +
+  facet_wrap(~method) +
+  scale_fill_gradient2(
+    name = NULL,
+    low = "red", mid = "yellow", high = "green",
+    midpoint = 50,
+    limits = c(0, 100)
+  ) +
+  labs(
+    x = "Hypoactivity Level (%)",
+    y = NULL,
+    title = "Mean NPV by Method"
+  ) +
+  theme_minimal(base_family = "serif") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    legend.key.width = unit(2, "cm"),
+    axis.title.y = element_blank()
+  )
+
+# Combine
+combined_heatmap_ppv_npv <- heatmap_ppv_facet + heatmap_npv_facet +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+# Show
+combined_heatmap_ppv_npv
+
+# Save
+ggsave("combined_heatmap_ppv_npv.png", combined_heatmap_ppv_npv, width = 28, height = 20, units = "cm", dpi = 600)
+
 
 ### -----------------------------------------------
 ### Double-faceted Heatmap: PPV
@@ -792,7 +1077,6 @@ load("z35/SCC_roiAD_1.RData")
 load("z35/SCC_w32_4.RData")
 load("z35/results/SCC_COMP_w32_1.RData")
 load("z35/results/SCC_COMP_w214_4.RData") # example alternative
-sccOneGroup <- readRDS("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z35/sccOneGroup.RDS")
 
 # Set working directory for saving figures
 setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ), "/Figures"))
@@ -837,8 +1121,8 @@ load("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z35/SCC_CN.RData")    # or loa
 
 # Load ROI points
 roiPoints <- neuroSCC::processROIs(
-  roiFile = file.path("roisNormalizadas", "wwwxw32_redim_crop_squ_flipLR_newDim_C1.nii"),
-  region = "w32",
+  roiFile = file.path("roisNormalizadas", "wwwxwroiAD_redim_crop_squ_flipLR_newDim_C2.nii"),
+  region = "roiAD",
   number = "1",
   save = FALSE,
   verbose = FALSE
@@ -846,11 +1130,11 @@ roiPoints <- neuroSCC::processROIs(
 roiPoints <- subset(roiPoints, z == paramZ & pet == 1, select = c("x", "y"))
 
 # Load SCC comparison
-load("z35/results/SCC_COMP_w32_1.RData")
+load("z35/results/SCC_COMP_roiAD_8.RData")
 sccPoints <- neuroSCC::getPoints(SCC_COMP)
 
 # Load SPM detected points
-spmBinary <- "z35/SPM/ROI1_w32_01/binary.nii"
+spmBinary <- "z35/SPM/ROI6_wroiAD_08/binary.nii"
 spmPoints <- neuroSCC::getSPMbinary(spmBinary, paramZ = paramZ)
 
 # Plot
@@ -860,7 +1144,7 @@ plotValidationPanel(
   roiPoints = roiPoints,
   sccPoints = sccPoints,
   spmPoints = spmPoints,
-  title = "Performance Validation Panel",
+  title = "",
   label1 = "Ground Truth (ROI)",
   label2 = "SCC Detected",
   label3 = "SPM Detected"
