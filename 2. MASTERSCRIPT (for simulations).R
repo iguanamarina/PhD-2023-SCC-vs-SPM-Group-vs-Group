@@ -774,7 +774,11 @@ plot_roi_grouped_with_asterisks <- function(table, pval_table, p_col = "p_sens",
     ) +
     facet_wrap(~region, ncol = 2) +
     scale_fill_brewer(palette = "Set1") +
-    scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.1))) +
+    scale_y_continuous(
+      limits = c(0, NA),
+      breaks = c(25, 50, 75, 100),
+      expand = expansion(mult = c(0, 0.1))
+    ) +
     xlab("Hypoactivity (%)") + ylab(y_label) +
     theme_minimal(base_family = "serif") +
     theme(
@@ -854,10 +858,24 @@ graph_npv <- plot_roi_grouped_with_asterisks(
 )
 
 # Save to PNGs
-ggsave("sens_FILTERED.png", plot = graph_sens, width = 28.95, height = 18.3, units = "cm", dpi = 600)
-ggsave("esp_FILTERED.png", plot = graph_esp, width = 28.95, height = 18.3, units = "cm", dpi = 600)
-ggsave("ppv_FILTERED.png", plot = graph_ppv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
-ggsave("npv_FILTERED.png", plot = graph_npv, width = 28.95, height = 18.3, units = "cm", dpi = 600)
+png("sens_FILTERED.png", width = 2895, height = 1830, res = 300)
+print(graph_sens)
+dev.off()
+
+# Specificity
+png("esp_FILTERED.png", width = 2895, height = 1830, res = 300)
+print(graph_esp)
+dev.off()
+
+# PPV
+png("ppv_FILTERED.png", width = 2895, height = 1830, res = 300)
+print(graph_ppv)
+dev.off()
+
+# NPV
+png("npv_FILTERED.png", width = 2895, height = 1830, res = 300)
+print(graph_npv)
+dev.off()
 
 
 ### ----------------------------------------------------------------
