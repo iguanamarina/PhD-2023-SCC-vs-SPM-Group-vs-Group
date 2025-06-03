@@ -960,10 +960,15 @@ heatmap_sens_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill =
   ) +
   theme_minimal(base_family = "serif") +
   theme(
-    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    strip.text = element_text(size = 15),
+    plot.title = element_text(size = 18, hjust = 0.5),
     legend.position = "bottom",
     legend.title = element_blank(),
-    legend.key.width = unit(2, "cm")  # widen legend
+    legend.key.width = unit(2, "cm")
   )
 
 # Heatmap for Specificity
@@ -978,27 +983,37 @@ heatmap_spec_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill =
   ) +
   labs(
     x = "Hypoactivity Level (%)",
-    y = NULL,  # remove y label entirely
+    y = "",  # preserve vertical space
     title = "Mean Specificity by Method"
   ) +
   theme_minimal(base_family = "serif") +
   theme(
-    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    strip.text = element_text(size = 15),
+    plot.title = element_text(size = 18, hjust = 0.5),
     legend.position = "bottom",
     legend.title = element_blank(),
-    legend.key.width = unit(2, "cm"),
-    axis.title.y = element_blank()  # removes y-axis label on second plot
+    legend.key.width = unit(2, "cm")
   )
 
 # Combine
 combined_heatmap_sens_esp <- heatmap_sens_facet + heatmap_spec_facet +
   plot_layout(guides = "collect") &
-  theme(legend.position = "bottom")
+  theme(
+    legend.position = "bottom",
+    axis.title.x = element_text(size = 16),
+    axis.title.y = element_text(size = 16)
+  )
 
 # Show
 combined_heatmap_sens_esp
 
+# Save
 ggsave("combined_heatmap_sens_esp.png", combined_heatmap_sens_esp, width = 28, height = 20, units = "cm", dpi = 600)
+
 
 ### ------------------------------------------------------
 ### Double-faceted Heatmap: PPV & NPV
@@ -1021,7 +1036,12 @@ heatmap_ppv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = 
   ) +
   theme_minimal(base_family = "serif") +
   theme(
-    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    strip.text = element_text(size = 15),
+    plot.title = element_text(size = 18, hjust = 0.5),
     legend.position = "bottom",
     legend.title = element_blank(),
     legend.key.width = unit(2, "cm")
@@ -1039,28 +1059,37 @@ heatmap_npv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = 
   ) +
   labs(
     x = "Hypoactivity Level (%)",
-    y = NULL,
+    y = "",  # preserve space, blank label
     title = "Mean NPV by Method"
   ) +
   theme_minimal(base_family = "serif") +
   theme(
-    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 13),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    strip.text = element_text(size = 15),
+    plot.title = element_text(size = 18, hjust = 0.5),
     legend.position = "bottom",
     legend.title = element_blank(),
-    legend.key.width = unit(2, "cm"),
-    axis.title.y = element_blank()
+    legend.key.width = unit(2, "cm")
   )
 
 # Combine
 combined_heatmap_ppv_npv <- heatmap_ppv_facet + heatmap_npv_facet +
   plot_layout(guides = "collect") &
-  theme(legend.position = "bottom")
+  theme(
+    legend.position = "bottom",
+    axis.title.x = element_text(size = 16),
+    axis.title.y = element_text(size = 16)
+  )
 
 # Show
 combined_heatmap_ppv_npv
 
 # Save
 ggsave("combined_heatmap_ppv_npv.png", combined_heatmap_ppv_npv, width = 28, height = 20, units = "cm", dpi = 600)
+
 
 
 ### -----------------------------------------------
