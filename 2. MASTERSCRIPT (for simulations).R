@@ -824,6 +824,44 @@ pvalTable <- pvalTable %>%
 # Save results
 write_csv(pvalTable, "z35/results/pvalue_table_compareR.csv")
 saveRDS(pvalTable, "z35/results/pvalue_table_compareR.RDS")
+pvalue_table_compareR <- readRDS("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z35/results/pvalue_table_compareR.RDS")
+
+# Función para imprimir resumen de resultados para una fila de pvalTable
+print_summary <- function(data, region_value, roi_value) {
+  row <- data %>%
+    filter(region == region_value, roi == roi_value) %>%
+    slice(1)
+  
+  cat(glue::glue("
+Región {region_value}, ROI {roi_value}:
+
+- Sensibilidad:
+  SCC = {round(row$sens_SCC, 2)}% ± {round(row$se_sens_SCC, 2)} {ifelse(row$sig_sens != '', paste0('(', row$sig_sens, ')'), '(sin significancia)')}
+  SPM = {round(row$sens_SPM, 2)}% ± {round(row$se_sens_SPM, 2)}
+
+- Especificidad:
+  SCC = {round(row$spec_SCC, 2)}% ± {round(row$se_spec_SCC, 2)} (sin p-valor)
+  SPM = {round(row$spec_SPM, 2)}% ± {round(row$se_spec_SPM, 2)}
+
+- PPV:
+  SCC = {round(row$ppv_SCC, 2)}% ± {round(row$se_ppv_SCC, 2)} {ifelse(row$sig_ppv != '', paste0('(', row$sig_ppv, ')'), '(sin significancia)')}
+  SPM = {round(row$ppv_SPM, 2)}% ± {round(row$se_ppv_SPM, 2)}
+
+- NPV:
+  SCC = {round(row$npv_SCC, 2)}% ± {round(row$se_npv_SCC, 2)} {ifelse(row$sig_npv != '', paste0('(', row$sig_npv, ')'), '(sin significancia)')}
+  SPM = {round(row$npv_SPM, 2)}% ± {round(row$se_npv_SPM, 2)}
+
+"))
+}
+
+# Imprimir todas las combinaciones
+for (i in seq_len(nrow(pvalue_table_compareR))) {
+  print_summary(
+    data = pvalue_table_compareR,
+    region_value = pvalue_table_compareR$region[i],
+    roi_value = pvalue_table_compareR$roi[i]
+  )
+}
 
 
 ### ==================================================== ###
