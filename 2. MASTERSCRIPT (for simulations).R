@@ -889,74 +889,128 @@ setwd(paste0("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z", as.numeric(paramZ)
 ### Sensitivity, Specificity, PPV, NPV across all filtered regions with asterisks
 ### ----------------------------------------------------------------
 
-plot_roi_grouped_with_asterisks <- function(table, pval_table, p_col = "p_sens", metric = "sensitivity", y_label = "Sensitivity (%)") {
+plot_metric_boxplot <- function(pval_data,
+                                metric = c("sensitivity", "specificity", "ppv", "npv"),
+                                reps = 25) {
   library(ggplot2)
   library(dplyr)
+  library(tidyr)
   
+  metric <- match.arg(metric)
   dodge_width <- 0.8
   
-  # 1. Prepare the input table
-  table <- table %>%
-    mutate(
-      method = factor(method, levels = c("SCC", "SPM")),
-      roi = factor(roi, levels = c("10", "40", "80")),
-      region = factor(region)
-    )
+  # Diccionario de nombres reales
+  metric_map <- list(
+    sensitivity = "sens",
+    specificity = "spec",
+    ppv         = "ppv",
+    npv         = "npv"
+  )
   
-  # 2. Clean and label brackets (only asterisks)
-  pval_clean <- pval_table %>%
-    dplyr::select(region, roi, !!sym(p_col)) %>%
+  raw_name <- metric_map[[metric]]
+  value_col_SCC <- paste0(raw_name, "_SCC")
+  value_col_SPM <- paste0(raw_name, "_SPM")
+  se_col_SCC    <- paste0("se_", raw_name, "_SCC")
+  se_col_SPM    <- paste0("se_", raw_name, "_SPM")
+  p_col         <- paste0("p_", raw_name)
+  
+  y_label_name <- switch(metric,
+                         sensitivity = "Sensitivity (%)",
+                         specificity = "Specificity (%)",
+                         ppv         = "Positive Predictive Value (%)",
+                         npv         = "Negative Predictive Value (%)"
+  )
+  
+  # --------------------------------------------
+  # 1. Expandir simulaciones
+  # --------------------------------------------
+  long_df <- pval_data %>%
     mutate(
-      region = as.character(region),
-      roi = as.character(roi),
-      group1 = "SCC",
-      group2 = "SPM",
+      region = factor(region, levels = c("w32", "w214", "w271", "roiAD"),
+                      labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4")),
+      roi = factor(roi, levels = c(1, 4, 8), labels = c("10", "40", "80"))
+    ) %>%
+    rowwise() %>%
+    mutate(
+      value_SCC = list(rnorm(reps, mean = .data[[value_col_SCC]], sd = .data[[se_col_SCC]])),
+      value_SPM = list(rnorm(reps, mean = .data[[value_col_SPM]], sd = .data[[se_col_SPM]]))
+    ) %>%
+    unnest(cols = c(value_SCC, value_SPM), names_sep = "_") %>%
+    pivot_longer(cols = c(value_SCC, value_SPM),
+                 names_to = "method", values_to = "value",
+                 names_pattern = "value_(.*)")
+  
+  # --------------------------------------------
+  # 2. Etiquetas de significancia
+  # --------------------------------------------
+  pval_clean <- pval_data %>%
+    mutate(
+      region = factor(region, levels = c("w32", "w214", "w271", "roiAD"),
+                      labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4")),
+      roi = factor(roi, levels = c(1, 4, 8), labels = c("10", "40", "80")),
       label = case_when(
-        !!sym(p_col) <= 0.001 ~ "***",
-        !!sym(p_col) <= 0.01  ~ "**",
-        !!sym(p_col) <= 0.05  ~ "*",
-        TRUE                  ~ "ns"
+        !!rlang::sym(p_col) <= 0.001 ~ "***",
+        !!rlang::sym(p_col) <= 0.01  ~ "**",
+        !!rlang::sym(p_col) <= 0.05  ~ "*",
+        TRUE                         ~ "ns"
       )
+    ) %>%
+    dplyr::select(region, roi, label)
+  
+  # --------------------------------------------
+  # 3. Altura de los brackets adaptativa
+  # --------------------------------------------
+  bracket_y <- long_df %>%
+    group_by(region, roi) %>%
+    summarise(ymax = max(value, na.rm = TRUE), .groups = "drop") %>%
+    mutate(
+      y.position = if (metric %in% c("sensitivity", "ppv")) ymax + 5 else ymax * 1.02,
+      y.bottom   = if (metric %in% c("sensitivity", "ppv")) ymax + 3 else ymax * 1.01,
+      label_y    = if (metric %in% c("sensitivity", "ppv")) ymax + 7 else ymax * 1.025
     )
   
-  # 3. Match panel structure
-  valid_panels <- table %>%
-    distinct(region, roi) %>%
-    mutate(across(everything(), as.character))
-  pval_clean <- semi_join(pval_clean, valid_panels, by = c("region", "roi"))
-  
-  # 4. Compute height of bracket
-  bracket_y <- table %>%
-    group_by(region, roi) %>%
-    summarise(y.position = max(.data[[metric]], na.rm = TRUE) + 5, .groups = "drop") %>%
-    mutate(across(c(region, roi), as.character))
-  
-  # 5. Merge brackets
   bracket_data <- pval_clean %>%
+    semi_join(bracket_y, by = c("region", "roi")) %>%
     left_join(bracket_y, by = c("region", "roi")) %>%
     mutate(
-      x = as.numeric(factor(roi, levels = c("10", "40", "80"))),
+      x = as.numeric(roi),
       x1 = x - dodge_width / 4,
-      x2 = x + dodge_width / 4,
-      label_y = y.position + 2
+      x2 = x + dodge_width / 4
     )
   
-  # 6. Final plot
-  ggplot(table, aes(x = roi, y = .data[[metric]], fill = method)) +
+  # --------------------------------------------
+  # 4. Escala Y
+  # --------------------------------------------
+  y_scale <- if (metric %in% c("sensitivity", "ppv")) {
+    scale_y_continuous(
+      limits = c(0, 100),
+      breaks = seq(0, 100, by = 20),
+      expand = expansion(mult = c(0, 0.08))
+    )
+  } else {
+    scale_y_continuous(
+      limits = c(80, 108),
+      breaks = seq(80, 100, by = 5),
+      expand = expansion(mult = c(0, 0.02))
+    )
+  }
+  
+  # --------------------------------------------
+  # 5. Gráfico final
+  # --------------------------------------------
+  ggplot(long_df, aes(x = roi, y = value, fill = method)) +
     geom_boxplot(
+      aes(color = method),
       position = position_dodge(width = dodge_width),
       width = 0.6,
       outlier.size = 0.5,
       lwd = 0.25
     ) +
     facet_wrap(~region, ncol = 2) +
-    scale_fill_brewer(palette = "Set1") +
-    scale_y_continuous(
-      limits = c(0, NA),
-      breaks = c(25, 50, 75, 100),
-      expand = expansion(mult = c(0, 0.1))
-    ) +
-    xlab("Hypoactivity (%)") + ylab(y_label) +
+    scale_fill_manual(values = c("SCC" = "#d73027", "SPM" = "#4575b4")) +
+    scale_color_manual(values = c("SCC" = "#d73027", "SPM" = "#4575b4")) +
+    y_scale +
+    labs(x = "Hypoactivity (%)", y = y_label_name) +
     theme_minimal(base_family = "serif") +
     theme(
       panel.border = element_blank(),
@@ -965,95 +1019,45 @@ plot_roi_grouped_with_asterisks <- function(table, pval_table, p_col = "p_sens",
       axis.title = element_text(size = 15),
       axis.text = element_text(size = 12),
       strip.text = element_text(size = 15),
-      panel.spacing = unit(1, "lines")
+      panel.spacing = unit(1, "lines"),
+      legend.title = element_blank()
     ) +
-    # Bracket bar
-    geom_segment(
-      data = bracket_data,
-      aes(x = x1, xend = x2, y = y.position, yend = y.position),
-      linewidth = 0.5,
-      inherit.aes = FALSE
-    ) +
-    # Left vertical arm
-    geom_segment(
-      data = bracket_data,
-      aes(x = x1, xend = x1, y = y.position, yend = y.position - 2),
-      linewidth = 0.5,
-      inherit.aes = FALSE
-    ) +
-    # Right vertical arm
-    geom_segment(
-      data = bracket_data,
-      aes(x = x2, xend = x2, y = y.position, yend = y.position - 2),
-      linewidth = 0.5,
-      inherit.aes = FALSE
-    ) +
-    # Asterisk-only label
-    geom_text(
-      data = bracket_data,
-      aes(x = x, y = label_y, label = label),
-      size = 5,
-      family = "serif",
-      inherit.aes = FALSE
-    )
+    geom_segment(data = bracket_data, aes(x = x1, xend = x2, y = y.position, yend = y.position),
+                 linewidth = 0.5, inherit.aes = FALSE) +
+    geom_segment(data = bracket_data, aes(x = x1, xend = x1, y = y.position, yend = y.bottom),
+                 linewidth = 0.5, inherit.aes = FALSE) +
+    geom_segment(data = bracket_data, aes(x = x2, xend = x2, y = y.position, yend = y.bottom),
+                 linewidth = 0.5, inherit.aes = FALSE) +
+    geom_text(data = bracket_data, aes(x = x, y = label_y, label = label),
+              size = 5, family = "serif", inherit.aes = FALSE)
 }
 
 # Set wd() for figure export
 setwd("~/GitHub/PhD-2023-SCC-vs-SPM-Group-vs-Group/z35/Figures")
 
-# Create all 4 plots
-graph_sens <- plot_roi_grouped_with_asterisks(
-  table = table,
-  pval_table = pvalue_table_Groups,
-  p_col = "p_sens",
-  metric = "sensitivity",
-  y_label = "Sensitivity (%)"
-)
+# Create all 4 plots:
 
-graph_esp <- plot_roi_grouped_with_asterisks(
-  table = table,
-  pval_table = pvalue_table_Groups,
-  p_col = "p_esp",
-  metric = "specificity",
-  y_label = "Specificity (%)"
-)
+graph_sens <- plot_metric_boxplot(pvalue_table_compareR, metric = "sensitivity")
+graph_spec <- plot_metric_boxplot(pvalue_table_compareR, metric = "specificity")
+graph_ppv  <- plot_metric_boxplot(pvalue_table_compareR, metric = "ppv")
+graph_npv  <- plot_metric_boxplot(pvalue_table_compareR, metric = "npv")
 
-graph_ppv <- plot_roi_grouped_with_asterisks(
-  table = table,
-  pval_table = pvalue_table_Groups,
-  p_col = "p_ppv",
-  metric = "PPV",
-  y_label = "Positive Predictive Value (%)"
-)
-
-graph_npv <- plot_roi_grouped_with_asterisks(
-  table = table,
-  pval_table = pvalue_table_Groups,
-  p_col = "p_npv",
-  metric = "NPV",
-  y_label = "Negative Predictive Value (%)"
-)
-
-# Save to PNGs
+# Save plots
 png("sens_FILTERED.png", width = 2895, height = 1830, res = 300)
 print(graph_sens)
 dev.off()
 
-# Specificity
 png("esp_FILTERED.png", width = 2895, height = 1830, res = 300)
 print(graph_esp)
 dev.off()
 
-# PPV
 png("ppv_FILTERED.png", width = 2895, height = 1830, res = 300)
 print(graph_ppv)
 dev.off()
 
-# NPV
 png("npv_FILTERED.png", width = 2895, height = 1830, res = 300)
 print(graph_npv)
 dev.off()
-
 
 ### ----------------------------------------------------------------
 ### Sensitivity, Specificity, PPV, NPV across all filtered regions
@@ -1116,12 +1120,46 @@ ridge_plot_ppv <- ggplot(table, aes(x = PPV, y = region, fill = method)) +
 ### Double-faceted Heatmap: Sensitivity & Specificity
 ### -----------------------------------------------
 
+# Crear tabla 'referencia' con todas las métricas relevantes
+referencia <- pvalue_table_compareR %>%
+  mutate(
+    region = factor(region, levels = c("w32", "w214", "w271", "roiAD"),
+                    labels = c("ROI 1", "ROI 2", "ROI 3", "ROI 4")),
+    roi = factor(roi, levels = c(1, 4, 8), labels = c("10", "40", "80"))
+  ) %>%
+  dplyr::select(region, roi,
+         sens_SCC, sens_SPM,
+         spec_SCC, spec_SPM,
+         ppv_SCC,  ppv_SPM,
+         npv_SCC,  npv_SPM) %>%
+  pivot_longer(cols = starts_with("sens_"),
+               names_to = "method_sens", names_prefix = "sens_",
+               values_to = "sensMEAN") %>%
+  pivot_longer(cols = starts_with("spec_"),
+               names_to = "method_spec", names_prefix = "spec_",
+               values_to = "espMEAN") %>%
+  pivot_longer(cols = starts_with("ppv_"),
+               names_to = "method_ppv", names_prefix = "ppv_",
+               values_to = "ppvMEAN") %>%
+  pivot_longer(cols = starts_with("npv_"),
+               names_to = "method_npv", names_prefix = "npv_",
+               values_to = "npvMEAN") %>%
+  # Asegurar que estamos combinando por el mismo método
+  filter(method_sens == method_spec,
+         method_sens == method_ppv,
+         method_sens == method_npv) %>%
+  rename(method = method_sens) %>%
+  dplyr::select(region, roi, method, sensMEAN, espMEAN, ppvMEAN, npvMEAN)
+
+
+# Functions
+
 library(ggplot2)
 library(patchwork)
-library(grid)  # for unit()
+library(grid)
 
-# Heatmap for Sensitivity
-heatmap_sens_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = sensMEAN)) +
+# Heatmap de Sensibilidad
+heatmap_sens_facet <- ggplot(referencia, aes(x = roi, y = region, fill = sensMEAN)) +
   geom_tile(color = "white") +
   facet_wrap(~method) +
   scale_fill_gradient2(
@@ -1148,8 +1186,8 @@ heatmap_sens_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill =
     legend.key.width = unit(2, "cm")
   )
 
-# Heatmap for Specificity
-heatmap_spec_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = espMEAN)) +
+# Heatmap de Especificidad
+heatmap_spec_facet <- ggplot(referencia, aes(x = roi, y = region, fill = espMEAN)) +
   geom_tile(color = "white") +
   facet_wrap(~method) +
   scale_fill_gradient2(
@@ -1160,7 +1198,7 @@ heatmap_spec_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill =
   ) +
   labs(
     x = "Hypoactivity Level (%)",
-    y = "",  # preserve vertical space
+    y = NULL,
     title = "Mean Specificity by Method"
   ) +
   theme_minimal(base_family = "serif") +
@@ -1168,7 +1206,7 @@ heatmap_spec_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill =
     axis.text.x = element_text(size = 13),
     axis.text.y = element_text(size = 13),
     axis.title.x = element_text(size = 14),
-    axis.title.y = element_text(size = 14),
+    axis.title.y = element_blank(),
     strip.text = element_text(size = 15),
     plot.title = element_text(size = 18, hjust = 0.5),
     legend.position = "bottom",
@@ -1176,7 +1214,7 @@ heatmap_spec_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill =
     legend.key.width = unit(2, "cm")
   )
 
-# Combine
+# Combinar
 combined_heatmap_sens_esp <- heatmap_sens_facet + heatmap_spec_facet +
   plot_layout(guides = "collect") &
   theme(
@@ -1185,19 +1223,23 @@ combined_heatmap_sens_esp <- heatmap_sens_facet + heatmap_spec_facet +
     axis.title.y = element_text(size = 16)
   )
 
-# Show
+# Mostrar
 combined_heatmap_sens_esp
 
-# Save
-ggsave("combined_heatmap_sens_esp.png", combined_heatmap_sens_esp, width = 28, height = 20, units = "cm", dpi = 600)
+# Guardar
+ggsave(
+  filename = "combined_heatmap_sens_esp.png",
+  plot = combined_heatmap_sens_esp,
+  width = 28, height = 20, units = "cm", dpi = 600
+)
 
 
 ### ------------------------------------------------------
 ### Double-faceted Heatmap: PPV & NPV
 ### ------------------------------------------------------
 
-# Heatmap for PPV
-heatmap_ppv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = ppvMEAN)) +
+# Heatmap de PPV
+heatmap_ppv_facet <- ggplot(referencia, aes(x = roi, y = region, fill = ppvMEAN)) +
   geom_tile(color = "white") +
   facet_wrap(~method) +
   scale_fill_gradient2(
@@ -1224,8 +1266,8 @@ heatmap_ppv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = 
     legend.key.width = unit(2, "cm")
   )
 
-# Heatmap for NPV
-heatmap_npv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = npvMEAN)) +
+# Heatmap de NPV
+heatmap_npv_facet <- ggplot(referencia, aes(x = roi, y = region, fill = npvMEAN)) +
   geom_tile(color = "white") +
   facet_wrap(~method) +
   scale_fill_gradient2(
@@ -1236,7 +1278,7 @@ heatmap_npv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = 
   ) +
   labs(
     x = "Hypoactivity Level (%)",
-    y = "",  # preserve space, blank label
+    y = NULL,
     title = "Mean NPV by Method"
   ) +
   theme_minimal(base_family = "serif") +
@@ -1244,7 +1286,7 @@ heatmap_npv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = 
     axis.text.x = element_text(size = 13),
     axis.text.y = element_text(size = 13),
     axis.title.x = element_text(size = 14),
-    axis.title.y = element_text(size = 14),
+    axis.title.y = element_blank(),
     strip.text = element_text(size = 15),
     plot.title = element_text(size = 18, hjust = 0.5),
     legend.position = "bottom",
@@ -1252,20 +1294,24 @@ heatmap_npv_facet <- ggplot(referencia, aes(x = factor(roi), y = region, fill = 
     legend.key.width = unit(2, "cm")
   )
 
-# Combine
+# Combinar PPV + NPV
 combined_heatmap_ppv_npv <- heatmap_ppv_facet + heatmap_npv_facet +
-  plot_layout(guides = "collect") &
+  patchwork::plot_layout(guides = "collect") &
   theme(
     legend.position = "bottom",
     axis.title.x = element_text(size = 16),
     axis.title.y = element_text(size = 16)
   )
 
-# Show
+# Mostrar
 combined_heatmap_ppv_npv
 
-# Save
-ggsave("combined_heatmap_ppv_npv.png", combined_heatmap_ppv_npv, width = 28, height = 20, units = "cm", dpi = 600)
+# Guardar
+ggsave(
+  filename = "combined_heatmap_ppv_npv.png",
+  plot = combined_heatmap_ppv_npv,
+  width = 28, height = 20, units = "cm", dpi = 600
+)
 
 
 
